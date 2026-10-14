@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Manrope', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --color-forest: #173f35;
+  --color-forest-hover: #1f5246;
+  --color-forest-dark: #0f2c25;
+  --color-ink: #17241f;
+  --color-ink-muted: #52635a;
+  --color-cream: #f6f5ee;
+  --color-cream-card: #ffffff;
+  --color-cream-muted: #eceae1;
+  --color-mint: #dff4e9;
+  --color-mint-dark: #b8e6ce;
+  --color-lime: #c9ed71;
+  --color-coral: #ef765f;
+  --color-coral-dark: #dc583f;
+}
+
+@layer base {
+  body {
+    background-color: #f6f5ee;
+    color: #17241f;
+    font-family: var(--font-sans);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+/* Custom scrollbar for question palette and tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1efe6;
+}
+::-webkit-scrollbar-thumb {
+  background: #cfcbbe;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a9a597;
+}

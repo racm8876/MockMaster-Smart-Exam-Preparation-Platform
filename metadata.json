@@ -1,0 +1,6 @@
+{
+  "name": "MockMaster",
+  "description": "Bilingual CBT competitive exam mock test platform for SSC, Banking, Railways & Civil Services with real-time exam simulation, question review, performance analytics, and study planner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
