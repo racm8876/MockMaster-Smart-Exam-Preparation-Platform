@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ClientExam } from '../types';
 import { X, Clock, FileQuestion, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface ExamInstructionsModalProps {
   examId: string | null;
@@ -44,13 +45,16 @@ export const ExamInstructionsModal: React.FC<ExamInstructionsModalProps> = ({
       <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-[#eceae1] overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-[#173f35] px-6 py-4 text-white flex items-center justify-between shrink-0">
-          <div>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-[#c9ed71]">
-              CBT Examination Hall Instructions
-            </span>
-            <h2 className="text-base sm:text-lg font-bold font-display text-white">
-              {exam ? (language === 'hi' ? exam.titleHi : exam.titleEn) : 'Loading...'}
-            </h2>
+          <div className="flex items-center gap-3">
+            <LogoIcon size="md" />
+            <div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-[#c9ed71]">
+                CBT Examination Hall Instructions
+              </span>
+              <h2 className="text-base sm:text-lg font-bold font-display text-white">
+                {exam ? (language === 'hi' ? exam.titleHi : exam.titleEn) : 'Loading...'}
+              </h2>
+            </div>
           </div>
           <button
             onClick={onClose}

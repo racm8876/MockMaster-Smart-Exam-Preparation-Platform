@@ -1,6 +1,20 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDb, persistDb } from './db';
+import {
+  getDb,
+  persistDb,
+  getStudentPlanner,
+  saveStudentTask,
+  updateStudentTask,
+  deleteStudentTask,
+  saveStickyNote,
+  updateStickyNote,
+  deleteStickyNote,
+  saveStudentGoal,
+  getCalendarEvents,
+  saveDatedNote,
+  deleteDatedNote,
+} from './db';
 import {
   AuthenticatedRequest,
   signToken,
@@ -13,6 +27,7 @@ import {
   ExamAttempt,
   Question,
   ParsedQuestionDraft,
+  ParsedOptionDraft,
   QuestionAttemptStatus,
   StudentTask,
   StudentStickyNote,
@@ -778,32 +793,12 @@ router.get('/materials', (_req, res) => {
 
 // Planner Overview (Tasks, Sticky Notes, Dated Notes, Goal)
 router.get('/planner', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
   const userId = req.user!.id;
-
-  const tasks = db.tasks.filter((t) => t.userId === userId);
-  const stickyNotes = db.stickyNotes.filter((s) => s.userId === userId);
-  const datedNotes = db.datedNotes.filter((d) => d.userId === userId);
-  const goal = db.goals[userId] || {
-    id: `goal-${userId}`,
-    userId,
-    targetExamEn: 'SSC CGL 2026',
-    targetExamHi: 'एसएससी सीजीएल 2026',
-    targetScore: 160,
-    targetDate: '2026-12-01',
-    dailyStudyHours: 6,
-    notes: 'Prioritize daily speed tests and mock review.',
-    updatedAt: new Date().toISOString(),
-  };
+  const planner = getStudentPlanner(userId);
 
   return res.json({
     success: true,
-    planner: {
-      tasks,
-      stickyNotes,
-      datedNotes,
-      goal,
-    },
+    planner,
   });
 });
 
@@ -812,9 +807,8 @@ router.post('/planner/tasks', requireAuth, (req: AuthenticatedRequest, res: Resp
   const { title, dueDate, priority } = req.body;
   if (!title) return res.status(400).json({ success: false, error: 'Task title is required.' });
 
-  const db = getDb();
   const newTask: StudentTask = {
-    id: `task-${Date.now()}`,
+    id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     userId: req.user!.id,
     title: String(title).trim(),
     dueDate,
@@ -823,32 +817,26 @@ router.post('/planner/tasks', requireAuth, (req: AuthenticatedRequest, res: Resp
     createdAt: new Date().toISOString(),
   };
 
-  db.tasks.push(newTask);
-  persistDb();
+  saveStudentTask(newTask);
   return res.status(201).json({ success: true, task: newTask });
 });
 
 router.put('/planner/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
-  const task = db.tasks.find((t) => t.id === req.params.id && t.userId === req.user!.id);
-  if (!task) return res.status(404).json({ success: false, error: 'Task not found.' });
-
   const { isCompleted, title, dueDate, priority } = req.body;
-  if (isCompleted !== undefined) task.isCompleted = Boolean(isCompleted);
-  if (title) task.title = String(title).trim();
-  if (dueDate !== undefined) task.dueDate = dueDate;
-  if (priority) task.priority = priority;
+  const ok = updateStudentTask(req.params.id, req.user!.id, {
+    isCompleted: isCompleted !== undefined ? Boolean(isCompleted) : undefined,
+    title: title ? String(title).trim() : undefined,
+    dueDate,
+    priority,
+  });
 
-  persistDb();
-  return res.json({ success: true, task });
+  if (!ok) return res.status(404).json({ success: false, error: 'Task not found.' });
+  return res.json({ success: true });
 });
 
 router.delete('/planner/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
-  const initialLen = db.tasks.length;
-  db.tasks = db.tasks.filter((t) => !(t.id === req.params.id && t.userId === req.user!.id));
-  if (db.tasks.length === initialLen) return res.status(404).json({ success: false, error: 'Task not found.' });
-  persistDb();
+  const ok = deleteStudentTask(req.params.id, req.user!.id);
+  if (!ok) return res.status(404).json({ success: false, error: 'Task not found.' });
   return res.json({ success: true });
 });
 
@@ -857,9 +845,8 @@ router.post('/planner/stickies', requireAuth, (req: AuthenticatedRequest, res: R
   const { content, color, x, y } = req.body;
   if (!content) return res.status(400).json({ success: false, error: 'Sticky content is required.' });
 
-  const db = getDb();
   const newSticky: StudentStickyNote = {
-    id: `stk-${Date.now()}`,
+    id: `stk-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     userId: req.user!.id,
     content: String(content).trim(),
     color: color || 'yellow',
@@ -868,41 +855,35 @@ router.post('/planner/stickies', requireAuth, (req: AuthenticatedRequest, res: R
     createdAt: new Date().toISOString(),
   };
 
-  db.stickyNotes.push(newSticky);
-  persistDb();
+  saveStickyNote(newSticky);
   return res.status(201).json({ success: true, stickyNote: newSticky });
 });
 
 router.put('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
-  const sticky = db.stickyNotes.find((s) => s.id === req.params.id && s.userId === req.user!.id);
-  if (!sticky) return res.status(404).json({ success: false, error: 'Sticky note not found.' });
-
   const { content, color, x, y } = req.body;
-  if (content !== undefined) sticky.content = String(content);
-  if (color) sticky.color = color;
-  if (typeof x === 'number') sticky.x = x;
-  if (typeof y === 'number') sticky.y = y;
+  const ok = updateStickyNote(req.params.id, req.user!.id, {
+    content: content !== undefined ? String(content) : undefined,
+    color,
+    x: typeof x === 'number' ? x : undefined,
+    y: typeof y === 'number' ? y : undefined,
+  });
 
-  persistDb();
-  return res.json({ success: true, stickyNote: sticky });
+  if (!ok) return res.status(404).json({ success: false, error: 'Sticky note not found.' });
+  return res.json({ success: true });
 });
 
 router.delete('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
-  db.stickyNotes = db.stickyNotes.filter((s) => !(s.id === req.params.id && s.userId === req.user!.id));
-  persistDb();
-  return res.json({ success: true });
+  const ok = deleteStickyNote(req.params.id, req.user!.id);
+  return res.json({ success: ok });
 });
 
 // Update Goal
 router.put('/planner/goals', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
   const userId = req.user!.id;
   const { targetExamEn, targetExamHi, targetScore, targetDate, dailyStudyHours, notes } = req.body;
 
   const goal: StudentGoal = {
-    id: db.goals[userId]?.id || `goal-${Date.now()}`,
+    id: `goal-${userId}`,
     userId,
     targetExamEn: targetExamEn || 'SSC CGL',
     targetExamHi: targetExamHi || 'एसएससी सीजीएल',
@@ -913,21 +894,19 @@ router.put('/planner/goals', requireAuth, (req: AuthenticatedRequest, res: Respo
     updatedAt: new Date().toISOString(),
   };
 
-  db.goals[userId] = goal;
-  persistDb();
+  saveStudentGoal(goal);
   return res.json({ success: true, goal });
 });
 
 // Calendar Events (Admin official events + student dated notes)
 router.get('/calendar/events', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
-  const adminEvents = db.calendarEvents;
-  const studentNotes = db.datedNotes.filter((n) => n.userId === req.user!.id);
+  const adminEvents = getCalendarEvents();
+  const planner = getStudentPlanner(req.user!.id);
 
   return res.json({
     success: true,
     officialEvents: adminEvents,
-    studentNotes,
+    studentNotes: planner.datedNotes,
   });
 });
 
@@ -1566,13 +1545,13 @@ router.post('/admin/imports/commit', requireAdmin, (req, res) => {
 
   validToCommit.forEach((q: ParsedQuestionDraft) => {
     const qId = `q-imp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const options = (q.options || []).map((opt, oIdx) => ({
+    const options = (q.options || []).map((opt: ParsedOptionDraft, oIdx: number) => ({
       id: `opt-${qId}-${oIdx}`,
-      textEn: opt.textEn || `Option ${opt.key}`,
-      textHi: opt.textHi || opt.textEn || `विकल्प ${opt.key}`,
+      textEn: opt.textEn || `Option ${opt.key || oIdx + 1}`,
+      textHi: opt.textHi || opt.textEn || `विकल्प ${opt.key || oIdx + 1}`,
     }));
 
-    const correctOption = q.options.find((o) => o.isCorrect);
+    const correctOption = (q.options || []).find((o: ParsedOptionDraft) => o.isCorrect);
     const correctIndex = correctOption ? q.options.indexOf(correctOption) : 0;
     const correctOptionId = options[correctIndex]?.id || options[0]?.id;
 

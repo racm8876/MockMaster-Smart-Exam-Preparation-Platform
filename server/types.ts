@@ -7,6 +7,8 @@ export interface User {
   passwordHash: string;
   role: Role;
   isActive: boolean;
+  isVerified?: boolean;
+  emailVerificationToken?: string;
   createdAt: string;
   preferredLanguage: 'en' | 'hi';
   stats: {
@@ -209,24 +211,71 @@ export interface StudentGoal {
   updatedAt: string;
 }
 
-export interface ParsedQuestionDraft {
+export interface Bookmark {
   id: string;
-  textEn: string;
-  textHi: string;
-  subjectName?: string;
-  topicName?: string;
-  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
-  positiveMarks: number;
-  negativeMarks: number;
-  options: {
-    key: 'A' | 'B' | 'C' | 'D';
-    textEn: string;
-    textHi: string;
-    isCorrect: boolean;
-  }[];
-  explanationEn: string;
-  explanationHi: string;
-  status: 'VALID' | 'WARNING' | 'DUPLICATE';
-  warningMessage?: string;
-  decision: 'KEEP' | 'REPLACE' | 'SKIP';
+  userId: string;
+  questionId: string;
+  note?: string;
+  createdAt: string;
 }
+
+export interface QuestionReport {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  questionId: string;
+  questionSnippet?: string;
+  reason: 'INCORRECT_ANSWER' | 'TYPO_ERROR' | 'MISSING_EXPLANATION' | 'UNCLEAR_DIAGRAM' | 'OTHER';
+  details: string;
+  status: 'PENDING' | 'RESOLVED';
+  resolvedAt?: string;
+  resolvedBy?: string;
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userEmail: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  detailsJson?: string;
+  ipAddress?: string;
+  createdAt: string;
+}
+
+export interface PasswordResetRecord {
+  id: string;
+  userId: string;
+  token: string;
+  expiresAt: string;
+  usedAt?: string;
+  createdAt: string;
+}
+
+export interface ParsedOptionDraft {
+  key?: string;
+  textEn: string;
+  textHi?: string;
+  isCorrect?: boolean;
+}
+
+export interface ParsedQuestionDraft {
+  id?: string;
+  questionNumber?: number;
+  textEn: string;
+  textHi?: string;
+  options: ParsedOptionDraft[];
+  correctKey?: string;
+  explanationEn?: string;
+  explanationHi?: string;
+  difficulty?: 'EASY' | 'MEDIUM' | 'HARD';
+  positiveMarks?: number;
+  negativeMarks?: number;
+  decision?: 'KEEP' | 'ACCEPT' | 'REVISE' | 'SKIP';
+  status?: 'VALID' | 'WARNING' | 'ERROR';
+  warningMessage?: string;
+}
+

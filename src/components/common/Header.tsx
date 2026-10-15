@@ -12,12 +12,15 @@ import {
   Menu,
 } from 'lucide-react';
 
+import { Logo } from './Logo';
+
 interface HeaderProps {
   onOpenMobileMenu?: () => void;
   onOpenAuthModal?: (tab: 'login' | 'register') => void;
+  onHomeClick?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModal }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModal, onHomeClick }) => {
   const { user, language, setLanguage, logout, switchRoleDemo, claimDailyBonus } = useAuth();
 
   const handleLanguageToggle = () => {
@@ -46,24 +49,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModa
             </button>
           )}
 
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#173f35] flex items-center justify-center text-[#c9ed71] shadow-xs font-bold text-lg">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-xl text-[#173f35] tracking-tight">
-                  Mock<span className="text-[#235447]">Master</span>
-                </span>
-                <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase rounded bg-[#dff4e9] text-[#173f35]">
-                  CBT 2026
-                </span>
-              </div>
-              <p className="text-[10px] text-[#52635a] hidden sm:block leading-none">
-                {language === 'hi' ? 'अखिल भारतीय प्रतियोगी परीक्षा पोर्टल' : 'All India Competitive Exam Portal'}
-              </p>
-            </div>
-          </div>
+          <Logo onClick={onHomeClick} size="md" />
         </div>
 
         {/* Right Action Bar */}

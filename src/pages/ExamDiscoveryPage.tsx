@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface ExamDiscoveryPageProps {
   onStartExam: (examId: string) => void;
@@ -60,15 +61,25 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'अखिल भारतीय लाइव मॉक टेस्ट श्रृंखला' : 'All India Live CBT Mock Test Series'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          {language === 'hi'
-            ? 'नवीनतम पाठ्यक्रम एवं वास्तविक परीक्षा पैटर्न पर आधारित द्विभाषी (English & Hindi) टेस्ट पेपर्स।'
-            : 'Authentic bilingual practice tests featuring real-time CBT navigation, timer expiry, and negative marking.'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl border border-[#eceae1] shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <LogoIcon size="lg" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#173f35] bg-[#dff4e9] px-2 py-0.5 rounded border border-[#b8e6ce]">
+                Official Test Portal
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display mt-0.5">
+              {language === 'hi' ? 'अखिल भारतीय लाइव मॉक टेस्ट श्रृंखला' : 'All India Live CBT Mock Test Series'}
+            </h1>
+            <p className="text-xs text-[#52635a] mt-0.5">
+              {language === 'hi'
+                ? 'नवीनतम पाठ्यक्रम एवं वास्तविक परीक्षा पैटर्न पर आधारित द्विभाषी (English & Hindi) टेस्ट पेपर्स।'
+                : 'Authentic bilingual practice tests featuring real-time CBT navigation, timer expiry, and negative marking.'}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

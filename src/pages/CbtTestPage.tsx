@@ -25,6 +25,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { LogoIcon } from '../components/common/Logo';
 
 interface CbtTestPageProps {
   examId: string;
@@ -485,11 +486,14 @@ export const CbtTestPage: React.FC<CbtTestPageProps> = ({
       <header className="h-14 bg-[#173f35] text-white px-4 sm:px-6 flex items-center justify-between shadow-md shrink-0 border-b border-[#235447]">
         {/* Left: Exam title & Section title */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-[#c9ed71] text-[#173f35] font-black flex items-center justify-center text-sm shadow-xs shrink-0">
-            CBT
-          </div>
+          <LogoIcon size="sm" />
           <div className="min-w-0">
-            <h1 className="text-xs sm:text-sm font-extrabold truncate text-white">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#c9ed71] bg-[#0f2c25] px-1.5 py-0.2 rounded border border-[#235447]">
+                MockMaster CBT
+              </span>
+            </div>
+            <h1 className="text-xs sm:text-sm font-extrabold truncate text-white leading-tight">
               {selectedLanguage === 'hi' ? exam.titleHi : exam.titleEn}
             </h1>
             <div className="text-[10px] text-[#b8e6ce] flex items-center gap-2">

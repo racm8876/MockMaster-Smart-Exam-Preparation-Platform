@@ -13,6 +13,7 @@ import {
   BookOpen,
   Share2,
 } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface ExamResultPageProps {
   attemptId: string;
@@ -80,17 +81,18 @@ export const ExamResultPage: React.FC<ExamResultPageProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Title & Exam metadata */}
-      <div className="text-center space-y-1">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dff4e9] text-[#173f35] text-xs font-bold">
-          <Award className="w-3.5 h-3.5" />
+      {/* Title & Exam metadata with Official Brand Emblem */}
+      <div className="text-center space-y-2 flex flex-col items-center">
+        <LogoIcon size="lg" />
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dff4e9] text-[#173f35] text-xs font-bold border border-[#b8e6ce]">
+          <Award className="w-3.5 h-3.5 text-[#173f35]" />
           <span>{language === 'hi' ? 'आधिकारिक सीबीटी परीक्षा परिणाम' : 'Authoritative CBT Score Report'}</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
           {language === 'hi' ? result.examTitleHi || 'मॉक टेस्ट स्कोरकार्ड' : result.examTitleEn || 'Mock Test Scorecard'}
         </h1>
         <p className="text-xs text-[#52635a]">
-          Submitted on {new Date(result.submittedAt || Date.now()).toLocaleString()}
+          Verified & Submitted on {new Date(result.submittedAt || Date.now()).toLocaleString()}
         </p>
       </div>
 

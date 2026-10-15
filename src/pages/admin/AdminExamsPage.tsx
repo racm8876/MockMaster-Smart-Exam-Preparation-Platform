@@ -15,6 +15,7 @@ import {
   AlertCircle,
   X,
 } from 'lucide-react';
+import { LogoIcon } from '../../components/common/Logo';
 
 interface AdminExamsPageProps {
   onPreviewExam: (examId: string) => void;
@@ -126,14 +127,17 @@ export const AdminExamsPage: React.FC<AdminExamsPageProps> = ({ onPreviewExam })
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-            {language === 'hi' ? 'परीक्षा रचना एवं प्रकाशन प्रबंधन' : 'Exam Authoring & Publishing Manager'}
-          </h1>
-          <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-            Compose sectional structures, enforce attempt limits, and validate publication criteria.
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <LogoIcon size="md" />
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+              {language === 'hi' ? 'परीक्षा रचना एवं प्रकाशन प्रबंधन' : 'Exam Authoring & Publishing Manager'}
+            </h1>
+            <p className="mt-0.5 text-xs text-[#52635a]">
+              Compose sectional structures, enforce attempt limits, and validate publication criteria.
+            </p>
+          </div>
         </div>
 
         <button

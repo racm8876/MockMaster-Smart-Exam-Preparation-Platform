@@ -13,6 +13,7 @@ import {
   Sparkles,
   BookOpen,
 } from 'lucide-react';
+import { Logo, LogoIcon } from '../components/common/Logo';
 
 interface LandingPageProps {
   onStartExam: (examId: string) => void;
@@ -32,9 +33,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* 1. Hero Section */}
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#173f35] via-[#1f5246] to-[#0f2c25] text-white p-8 sm:p-14 shadow-xl">
         <div className="max-w-3xl space-y-6 relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#c9ed71] text-[#173f35] text-xs font-bold">
-            <Sparkles className="w-4 h-4" />
-            <span>{language === 'hi' ? 'द्विभाषी सीबीटी ऑनलाइन टेस्ट 2026' : 'Authentic Bilingual CBT Platform 2026'}</span>
+          <div className="flex items-center gap-3">
+            <Logo variant="light" size="lg" />
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight font-display leading-[1.15] text-white">
@@ -170,6 +170,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <ArrowRight className="w-4 h-4" />
         </button>
       </section>
+
+      {/* 4. Branded Footer */}
+      <footer className="pt-8 border-t border-[#eceae1] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#52635a]">
+        <Logo size="sm" showSubtitle={true} />
+        <div className="flex items-center gap-4 text-[11px]">
+          <span>© 2026 MockMaster Exam Systems</span>
+          <span>•</span>
+          <span>Bilingual CBT Engine v2.4</span>
+          <span>•</span>
+          <span>Official Mock Architecture</span>
+        </div>
+      </footer>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import {
   User,
@@ -7,227 +8,726 @@ import {
   Subject,
   Topic,
   Question,
+  QuestionOption,
   Exam,
+  ExamSection,
   ExamAttempt,
+  AttemptAnswer,
   StudyMaterial,
   CalendarEvent,
   StudentTask,
   StudentStickyNote,
   StudentDatedNote,
   StudentGoal,
+  Bookmark,
+  QuestionReport,
+  AuditLog,
+  PasswordResetRecord,
 } from './types';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_FILE = path.resolve(DATA_DIR, 'mockmaster_db.json');
+const DB_PATH = path.resolve(DATA_DIR, 'mockmaster.sqlite');
 
-export interface DatabaseSchema {
-  users: User[];
-  categories: Category[];
-  subjects: Subject[];
-  topics: Topic[];
-  questions: Question[];
-  exams: Exam[];
-  attempts: ExamAttempt[];
-  studyMaterials: StudyMaterial[];
-  calendarEvents: CalendarEvent[];
-  tasks: StudentTask[];
-  stickyNotes: StudentStickyNote[];
-  datedNotes: StudentDatedNote[];
-  goals: Record<string, StudentGoal>; // key by userId
-}
-
-let dbInstance: DatabaseSchema | null = null;
-
-// Ensure storage directory exists
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-export function getDb(): DatabaseSchema {
-  if (dbInstance) {
-    return dbInstance;
-  }
+let sqliteDb: DatabaseSync | null = null;
 
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const content = fs.readFileSync(DB_FILE, 'utf-8');
-      dbInstance = JSON.parse(content);
-      return dbInstance!;
-    } catch (err) {
-      console.error('Failed to load DB from disk, re-seeding...', err);
-    }
-  }
+export function getSqliteDb(): DatabaseSync {
+  if (sqliteDb) return sqliteDb;
 
-  dbInstance = createInitialSeedData();
-  persistDb();
-  return dbInstance;
+  sqliteDb = new DatabaseSync(DB_PATH);
+
+  // Performance and ACID integrity pragmas
+  sqliteDb.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
+  `);
+
+  initTables(sqliteDb);
+  seedIfEmpty(sqliteDb);
+
+  return sqliteDb;
 }
 
-export function persistDb() {
-  if (!dbInstance) return;
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(dbInstance, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to persist DB to disk:', err);
-  }
+function initTables(db: DatabaseSync) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'STUDENT',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      is_verified INTEGER NOT NULL DEFAULT 1,
+      email_verification_token TEXT,
+      preferred_language TEXT NOT NULL DEFAULT 'en',
+      points INTEGER NOT NULL DEFAULT 0,
+      streak_days INTEGER NOT NULL DEFAULT 1,
+      last_login_date TEXT,
+      tests_attempted INTEGER NOT NULL DEFAULT 0,
+      tests_completed INTEGER NOT NULL DEFAULT 0,
+      avg_score REAL NOT NULL DEFAULT 0.0,
+      avg_accuracy REAL NOT NULL DEFAULT 0.0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name_en TEXT NOT NULL,
+      name_hi TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description_en TEXT,
+      description_hi TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS subjects (
+      id TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL,
+      name_en TEXT NOT NULL,
+      name_hi TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS topics (
+      id TEXT PRIMARY KEY,
+      subject_id TEXT NOT NULL,
+      name_en TEXT NOT NULL,
+      name_hi TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS questions (
+      id TEXT PRIMARY KEY,
+      subject_id TEXT NOT NULL,
+      topic_id TEXT,
+      difficulty TEXT NOT NULL DEFAULT 'MEDIUM',
+      text_en TEXT NOT NULL,
+      text_hi TEXT NOT NULL,
+      image_url TEXT,
+      positive_marks REAL NOT NULL DEFAULT 2.0,
+      negative_marks REAL NOT NULL DEFAULT 0.5,
+      correct_option_id TEXT NOT NULL,
+      explanation_en TEXT NOT NULL,
+      explanation_hi TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id);
+    CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic_id);
+
+    CREATE TABLE IF NOT EXISTS question_options (
+      id TEXT PRIMARY KEY,
+      question_id TEXT NOT NULL,
+      text_en TEXT NOT NULL,
+      text_hi TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_question_options_q ON question_options(question_id);
+
+    CREATE TABLE IF NOT EXISTS exams (
+      id TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL,
+      title_en TEXT NOT NULL,
+      title_hi TEXT NOT NULL,
+      description_en TEXT,
+      description_hi TEXT,
+      instructions_en TEXT,
+      instructions_hi TEXT,
+      duration_minutes INTEGER NOT NULL,
+      total_marks REAL NOT NULL,
+      is_published INTEGER NOT NULL DEFAULT 0,
+      allow_resume INTEGER NOT NULL DEFAULT 1,
+      show_instant_result INTEGER NOT NULL DEFAULT 1,
+      show_answer_review INTEGER NOT NULL DEFAULT 1,
+      shuffle_questions INTEGER NOT NULL DEFAULT 0,
+      shuffle_options INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_exams_category ON exams(category_id);
+
+    CREATE TABLE IF NOT EXISTS exam_sections (
+      id TEXT PRIMARY KEY,
+      exam_id TEXT NOT NULL,
+      name_en TEXT NOT NULL,
+      name_hi TEXT NOT NULL,
+      display_order INTEGER NOT NULL,
+      FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_section_questions (
+      id TEXT PRIMARY KEY,
+      section_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      display_order INTEGER NOT NULL,
+      FOREIGN KEY(section_id) REFERENCES exam_sections(id) ON DELETE CASCADE,
+      FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS attempts (
+      id TEXT PRIMARY KEY,
+      exam_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      submitted_at TEXT,
+      expires_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'IN_PROGRESS',
+      score REAL,
+      total_marks REAL,
+      total_questions INTEGER,
+      correct_count INTEGER,
+      incorrect_count INTEGER,
+      unanswered_count INTEGER,
+      accuracy_percentage REAL,
+      time_spent_seconds INTEGER,
+      section_scores_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_attempts_exam ON attempts(exam_id);
+
+    CREATE TABLE IF NOT EXISTS attempt_answers (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      selected_option_id TEXT,
+      status TEXT NOT NULL DEFAULT 'NOT_VISITED',
+      time_spent_seconds INTEGER NOT NULL DEFAULT 0,
+      is_correct INTEGER,
+      marks_awarded REAL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES attempts(id) ON DELETE CASCADE,
+      UNIQUE(attempt_id, question_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_attempt_answers_attempt ON attempt_answers(attempt_id);
+
+    CREATE TABLE IF NOT EXISTS bookmarks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, question_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id);
+
+    CREATE TABLE IF NOT EXISTS question_reports (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      details TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      resolved_at TEXT,
+      resolved_by TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT,
+      details_json TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
+    CREATE TABLE IF NOT EXISTS study_materials (
+      id TEXT PRIMARY KEY,
+      title_en TEXT NOT NULL,
+      title_hi TEXT NOT NULL,
+      description_en TEXT,
+      description_hi TEXT,
+      category_id TEXT NOT NULL,
+      subject_id TEXT,
+      pdf_url TEXT NOT NULL,
+      pages_count INTEGER NOT NULL,
+      file_size_mb REAL NOT NULL,
+      is_published INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id TEXT PRIMARY KEY,
+      title_en TEXT NOT NULL,
+      title_hi TEXT NOT NULL,
+      description_en TEXT,
+      description_hi TEXT,
+      date TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'EXAM',
+      url TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS student_tasks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      priority TEXT NOT NULL DEFAULT 'MEDIUM',
+      is_completed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS student_sticky_notes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT 'yellow',
+      x REAL NOT NULL DEFAULT 20,
+      y REAL NOT NULL DEFAULT 20,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS student_dated_notes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS student_goals (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      target_exam_en TEXT NOT NULL,
+      target_exam_hi TEXT NOT NULL,
+      target_score REAL NOT NULL,
+      target_date TEXT NOT NULL,
+      daily_study_hours REAL NOT NULL,
+      notes TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
 }
 
-function createInitialSeedData(): DatabaseSchema {
-  const adminPasswordHash = bcrypt.hashSync('Admin@12345', 10);
-  const studentPasswordHash = bcrypt.hashSync('Student@12345', 10);
+function seedIfEmpty(db: DatabaseSync) {
+  const rowCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
+  if (rowCount.cnt > 0) return;
 
-  const adminUser: User = {
-    id: 'user-admin-01',
-    name: 'Chief Admin Officer',
-    email: 'admin@mockmaster.com',
-    passwordHash: adminPasswordHash,
-    role: 'ADMIN',
-    isActive: true,
-    createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-    preferredLanguage: 'en',
-    stats: {
-      points: 450,
-      streakDays: 14,
-      lastLoginDate: new Date().toISOString().split('T')[0],
-      testsAttempted: 0,
-      testsCompleted: 0,
-      avgScore: 0,
-      avgAccuracy: 0,
-    },
-  };
+  console.log('Seeding initial production SQLite schema with verified bilingual exam data...');
 
-  const studentUser: User = {
-    id: 'user-student-01',
-    name: 'Aarav Sharma',
-    email: 'student@mockmaster.com',
-    passwordHash: studentPasswordHash,
-    role: 'STUDENT',
-    isActive: true,
-    createdAt: new Date(Date.now() - 15 * 86400000).toISOString(),
-    preferredLanguage: 'en',
-    stats: {
-      points: 240,
-      streakDays: 7,
-      lastLoginDate: new Date().toISOString().split('T')[0],
-      testsAttempted: 6,
-      testsCompleted: 5,
-      avgScore: 32.5,
-      avgAccuracy: 84.2,
-    },
-  };
+  const adminHash = bcrypt.hashSync('Admin@12345', 10);
+  const studentHash = bcrypt.hashSync('Student@12345', 10);
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
 
-  const studentUser2: User = {
-    id: 'user-student-02',
-    name: 'Priya Verma',
-    email: 'priya@mockmaster.com',
-    passwordHash: studentPasswordHash,
-    role: 'STUDENT',
-    isActive: true,
-    createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-    preferredLanguage: 'hi',
-    stats: {
-      points: 310,
-      streakDays: 12,
-      lastLoginDate: new Date().toISOString().split('T')[0],
-      testsAttempted: 9,
-      testsCompleted: 8,
-      avgScore: 35.8,
-      avgAccuracy: 89.1,
-    },
-  };
+  // Seed Users
+  const insertUser = db.prepare(`
+    INSERT INTO users (
+      id, name, email, password_hash, role, is_active, is_verified,
+      preferred_language, points, streak_days, last_login_date,
+      tests_attempted, tests_completed, avg_score, avg_accuracy,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-  const studentUser3: User = {
-    id: 'user-student-03',
-    name: 'Rohan Gupta',
-    email: 'rohan@mockmaster.com',
-    passwordHash: studentPasswordHash,
-    role: 'STUDENT',
-    isActive: true,
-    createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-    preferredLanguage: 'en',
-    stats: {
-      points: 180,
-      streakDays: 4,
-      lastLoginDate: new Date().toISOString().split('T')[0],
-      testsAttempted: 4,
-      testsCompleted: 4,
-      avgScore: 28.0,
-      avgAccuracy: 72.5,
-    },
-  };
+  insertUser.run(
+    'user-admin-01',
+    'Chief Administrator',
+    'admin@mockmaster.com',
+    adminHash,
+    'ADMIN',
+    1,
+    1,
+    'en',
+    450,
+    14,
+    today,
+    0,
+    0,
+    0.0,
+    0.0,
+    now,
+    now
+  );
 
-  const categories: Category[] = [
-    {
-      id: 'cat-ssc',
-      nameEn: 'Staff Selection Commission (SSC)',
-      nameHi: 'कर्मचारी चयन आयोग (एसएससी)',
-      slug: 'ssc',
-      descriptionEn: 'CGL, CHSL, CPO, MTS and Stenographer comprehensive mock test series',
-      descriptionHi: 'सीजीएल, सीएचएसएल, सीपीओ, एमटीएस और आशुलिपिक संपूर्ण मॉक टेस्ट श्रृंखला',
-    },
-    {
-      id: 'cat-banking',
-      nameEn: 'Banking & Insurance',
-      nameHi: 'बैंकिंग एवं बीमा',
-      slug: 'banking',
-      descriptionEn: 'IBPS PO, SBI PO, RBI Grade B and Clerk speed tests and sectional exams',
-      descriptionHi: 'आईबीपीएस पीओ, एसबीआई पीओ, आरबीआई ग्रेड बी और क्लर्क स्पीड टेस्ट',
-    },
-    {
-      id: 'cat-railway',
-      nameEn: 'Railway Recruitment Board (RRB)',
-      nameHi: 'रेलवे भर्ती बोर्ड (आरआरबी)',
-      slug: 'railway',
-      descriptionEn: 'RRB NTPC, Group D, ALP and Technician practice papers',
-      descriptionHi: 'आरआरबी एनटीपीसी, ग्रुप डी, एएलपी और तकनीशियन अभ्यास प्रश्नपत्र',
-    },
+  insertUser.run(
+    'user-student-01',
+    'Aarav Sharma',
+    'student@mockmaster.com',
+    studentHash,
+    'STUDENT',
+    1,
+    1,
+    'en',
+    240,
+    7,
+    today,
+    6,
+    5,
+    33.5,
+    85.4,
+    now,
+    now
+  );
+
+  insertUser.run(
+    'user-student-02',
+    'Priya Verma',
+    'priya@mockmaster.com',
+    studentHash,
+    'STUDENT',
+    1,
+    1,
+    'hi',
+    310,
+    12,
+    today,
+    9,
+    8,
+    35.8,
+    89.1,
+    now,
+    now
+  );
+
+  // Seed Categories
+  const insertCat = db.prepare(`
+    INSERT INTO categories (id, name_en, name_hi, slug, description_en, description_hi, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertCat.run(
+    'cat-ssc',
+    'Staff Selection Commission (SSC)',
+    'कर्मचारी चयन आयोग (एसएससी)',
+    'ssc',
+    'CGL, CHSL, CPO, MTS and Stenographer comprehensive mock test series',
+    'सीजीएल, सीएचएसएल, सीपीओ, एमटीएस और आशुलिपिक संपूर्ण मॉक टेस्ट श्रृंखला',
+    now
+  );
+
+  insertCat.run(
+    'cat-banking',
+    'Banking & Insurance',
+    'बैंकिंग एवं बीमा',
+    'banking',
+    'IBPS PO, SBI PO, RBI Grade B and Clerk speed tests and sectional exams',
+    'आईबीपीएस पीओ, एसबीआई पीओ, आरबीआई ग्रेड बी और क्लर्क स्पीड टेस्ट',
+    now
+  );
+
+  insertCat.run(
+    'cat-railway',
+    'Railway Recruitment Board (RRB)',
+    'रेलवे भर्ती बोर्ड (आरआरबी)',
+    'railway',
+    'RRB NTPC, Group D, ALP and Technician practice papers',
+    'आरआरबी एनटीपीसी, ग्रुप डी, एएलपी और तकनीशियन अभ्यास प्रश्नपत्र',
+    now
+  );
+
+  // Seed Subjects
+  const insertSub = db.prepare(`
+    INSERT INTO subjects (id, category_id, name_en, name_hi, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  insertSub.run('sub-reasoning', 'cat-ssc', 'General Intelligence & Reasoning', 'सामान्य बुद्धि एवं तर्कशक्ति', now);
+  insertSub.run('sub-gk', 'cat-ssc', 'General Awareness', 'सामान्य जागरूकता एवं समसामयिकी', now);
+  insertSub.run('sub-quant', 'cat-ssc', 'Quantitative Aptitude', 'मात्रात्मक योग्यता / गणित', now);
+  insertSub.run('sub-english', 'cat-ssc', 'English Language & Comprehension', 'अंग्रेजी भाषा एवं बोधगम्यता', now);
+
+  // Seed Topics
+  const insertTop = db.prepare(`
+    INSERT INTO topics (id, subject_id, name_en, name_hi, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  insertTop.run('top-series', 'sub-reasoning', 'Number & Letter Series', 'संख्या एवं अक्षर श्रृंखला', now);
+  insertTop.run('top-blood', 'sub-reasoning', 'Blood Relations', 'रक्त संबंध', now);
+  insertTop.run('top-syllogism', 'sub-reasoning', 'Syllogism', 'न्याय वाक्य', now);
+  insertTop.run('top-polity', 'sub-gk', 'Indian Constitution & Polity', 'भारतीय संविधान एवं राजव्यवस्था', now);
+  insertTop.run('top-history', 'sub-gk', 'Modern Indian History', 'आधुनिक भारतीय इतिहास', now);
+  insertTop.run('top-science', 'sub-gk', 'General Science', 'सामान्य विज्ञान', now);
+  insertTop.run('top-percentage', 'sub-quant', 'Percentage & Profit-Loss', 'प्रतिशत तथा लाभ-हानि', now);
+  insertTop.run('top-algebra', 'sub-quant', 'Algebra & Equations', 'बीजगणित एवं समीकरण', now);
+  insertTop.run('top-geometry', 'sub-quant', 'Geometry & Mensuration', 'ज्यामिति एवं क्षेत्रमिति', now);
+  insertTop.run('top-vocab', 'sub-english', 'Vocabulary & Idioms', 'शब्दावली एवं मुहावरे', now);
+  insertTop.run('top-grammar', 'sub-english', 'Spotting Errors & Grammar', 'व्याकरण तथा त्रुटि पहचान', now);
+  insertTop.run('top-cloze', 'sub-english', 'Cloze Test & Comprehension', 'क्लोज टेस्ट एवं परिच्छेद', now);
+
+  // Seed 20 Full Bilingual Questions
+  const insertQ = db.prepare(`
+    INSERT INTO questions (
+      id, subject_id, topic_id, difficulty, text_en, text_hi, image_url,
+      positive_marks, negative_marks, correct_option_id,
+      explanation_en, explanation_hi, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertOpt = db.prepare(`
+    INSERT INTO question_options (id, question_id, text_en, text_hi, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const rawQuestions = getSeedQuestions();
+  rawQuestions.forEach((q) => {
+    insertQ.run(
+      q.id,
+      q.subjectId,
+      q.topicId || null,
+      q.difficulty,
+      q.textEn,
+      q.textHi,
+      q.imageUrl || null,
+      q.positiveMarks,
+      q.negativeMarks,
+      q.correctOptionId,
+      q.explanationEn,
+      q.explanationHi,
+      now
+    );
+
+    q.options.forEach((opt, oIdx) => {
+      insertOpt.run(opt.id, q.id, opt.textEn, opt.textHi, oIdx);
+    });
+  });
+
+  // Seed Exam: SSC CGL Tier 1 Mock Test 01
+  const insertExam = db.prepare(`
+    INSERT INTO exams (
+      id, category_id, title_en, title_hi, description_en, description_hi,
+      instructions_en, instructions_hi, duration_minutes, total_marks,
+      is_published, allow_resume, show_instant_result, show_answer_review,
+      shuffle_questions, shuffle_options, max_attempts, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertExam.run(
+    'exam-ssc-cgl-01',
+    'cat-ssc',
+    'SSC CGL Tier 1 Full Mock Test 2026 (All India Rank Series 01)',
+    'एसएससी सीजीएल टियर 1 संपूर्ण मॉक टेस्ट 2026 (अखिल भारतीय रैंक श्रृंखला 01)',
+    'Official-pattern bilingual CBT full-length test covering Reasoning, General Awareness, Quantitative Aptitude, and English Comprehension with authentic negative marking.',
+    'तर्कशक्ति, सामान्य ज्ञान, गणित और अंग्रेजी बोधगम्यता का आधिकारिक परीक्षा पैटर्न पर आधारित वास्तविक सीबीटी मॉक टेस्ट।',
+    '1. 20 questions in 4 sections.\n2. Time duration 30 minutes.\n3. +2.0 marks for correct; -0.5 negative marking for incorrect.',
+    '1. 4 अनुभागों में 20 प्रश्न हैं।\n2. अवधि 30 मिनट है।\n3. प्रत्येक सही उत्तर के लिए +2.0 अंक; गलत उत्तर के लिए -0.5 अंक काटे जाएंगे।',
+    30,
+    40.0,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    3,
+    now,
+    now
+  );
+
+  const insertSection = db.prepare(`
+    INSERT INTO exam_sections (id, exam_id, name_en, name_hi, display_order)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const insertSecQ = db.prepare(`
+    INSERT INTO exam_section_questions (id, section_id, question_id, display_order)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const sectionsData = [
+    { id: 'sec-res', nameEn: 'General Intelligence & Reasoning', nameHi: 'सामान्य बुद्धि एवं तर्कशक्ति', order: 1, qIds: ['q-res-01', 'q-res-02', 'q-res-03', 'q-res-04', 'q-res-05'] },
+    { id: 'sec-gk', nameEn: 'General Awareness', nameHi: 'सामान्य जागरूकता', order: 2, qIds: ['q-gk-01', 'q-gk-02', 'q-gk-03', 'q-gk-04', 'q-gk-05'] },
+    { id: 'sec-qnt', nameEn: 'Quantitative Aptitude', nameHi: 'मात्रात्मक योग्यता', order: 3, qIds: ['q-qnt-01', 'q-qnt-02', 'q-qnt-03', 'q-qnt-04', 'q-qnt-05'] },
+    { id: 'sec-eng', nameEn: 'English Comprehension', nameHi: 'अंग्रेजी भाषा एवं बोधगम्यता', order: 4, qIds: ['q-eng-01', 'q-eng-02', 'q-eng-03', 'q-eng-04', 'q-eng-05'] },
   ];
 
-  const subjects: Subject[] = [
-    {
-      id: 'sub-reasoning',
-      categoryId: 'cat-ssc',
-      nameEn: 'General Intelligence & Reasoning',
-      nameHi: 'सामान्य बुद्धि एवं तर्कशक्ति',
-    },
-    {
-      id: 'sub-gk',
-      categoryId: 'cat-ssc',
-      nameEn: 'General Awareness',
-      nameHi: 'सामान्य जागरूकता एवं समसामयिकी',
-    },
-    {
-      id: 'sub-quant',
-      categoryId: 'cat-ssc',
-      nameEn: 'Quantitative Aptitude',
-      nameHi: 'मात्रात्मक योग्यता / गणित',
-    },
-    {
-      id: 'sub-english',
-      categoryId: 'cat-ssc',
-      nameEn: 'English Language & Comprehension',
-      nameHi: 'अंग्रेजी भाषा एवं बोधगम्यता',
-    },
-  ];
+  sectionsData.forEach((sec) => {
+    insertSection.run(sec.id, 'exam-ssc-cgl-01', sec.nameEn, sec.nameHi, sec.order);
+    sec.qIds.forEach((qId, qIdx) => {
+      insertSecQ.run(`esq-${sec.id}-${qId}`, sec.id, qId, qIdx);
+    });
+  });
 
-  const topics: Topic[] = [
-    { id: 'top-syllogism', subjectId: 'sub-reasoning', nameEn: 'Syllogism', nameHi: 'न्याय वाक्य' },
-    { id: 'top-series', subjectId: 'sub-reasoning', nameEn: 'Number & Letter Series', nameHi: 'संख्या एवं अक्षर श्रृंखला' },
-    { id: 'top-blood', subjectId: 'sub-reasoning', nameEn: 'Blood Relations', nameHi: 'रक्त संबंध' },
-    { id: 'top-polity', subjectId: 'sub-gk', nameEn: 'Indian Constitution & Polity', nameHi: 'भारतीय संविधान एवं राजव्यवस्था' },
-    { id: 'top-history', subjectId: 'sub-gk', nameEn: 'Modern Indian History', nameHi: 'आधुनिक भारतीय इतिहास' },
-    { id: 'top-science', subjectId: 'sub-gk', nameEn: 'General Science', nameHi: 'सामान्य विज्ञान' },
-    { id: 'top-percentage', subjectId: 'sub-quant', nameEn: 'Percentage & Profit-Loss', nameHi: 'प्रतिशत तथा लाभ-हानि' },
-    { id: 'top-algebra', subjectId: 'sub-quant', nameEn: 'Algebra & Equations', nameHi: 'बीजगणित एवं समीकरण' },
-    { id: 'top-geometry', subjectId: 'sub-quant', nameEn: 'Geometry & Mensuration', nameHi: 'ज्यामिति एवं क्षेत्रमिति' },
-    { id: 'top-vocab', subjectId: 'sub-english', nameEn: 'Vocabulary & Idioms', nameHi: 'शब्दावली एवं मुहावरे' },
-    { id: 'top-grammar', subjectId: 'sub-english', nameEn: 'Spotting Errors & Grammar', nameHi: 'व्याकरण तथा त्रुटि पहचान' },
-    { id: 'top-cloze', subjectId: 'sub-english', nameEn: 'Cloze Test & Reading', nameHi: 'क्लोज टेस्ट एवं परिच्छेद' },
-  ];
+  // Seed IBPS PO Speed Drill
+  insertExam.run(
+    'exam-ibps-speed-01',
+    'cat-banking',
+    'IBPS PO Prelims 2026 — Reasoning & Quant Speed Drill 01',
+    'आईबीपीएस पीओ प्रीलिम्स 2026 — तर्कशक्ति एवं गणित स्पीड ड्रिल 01',
+    'High-speed 10-question drill designed to test accuracy under strict time pressure for banking aspirants.',
+    'बैंकिंग उम्मीदवारों के लिए समय-सीमा में सटीकता परखने हेतु 10-प्रश्नों की हाई-स्पीड ड्रिल।',
+    '10 questions, 15 minutes. +1.0 for correct, -0.25 for incorrect.',
+    '10 प्रश्न, 15 मिनट। प्रत्येक सही उत्तर के लिए +1.0, गलत के लिए -0.25 अंक।',
+    15,
+    20.0,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    5,
+    now,
+    now
+  );
 
-  // 20 Full Bilingual Questions (5 Reasoning, 5 GK, 5 Quant, 5 English)
-  const questions: Question[] = [
-    // --- SECTION 1: REASONING (5 questions) ---
+  insertSection.run('sec-ibps-res', 'exam-ibps-speed-01', 'Reasoning Ability', 'तर्कशक्ति क्षमता', 1);
+  ['q-res-01', 'q-res-02', 'q-res-03', 'q-res-04', 'q-res-05'].forEach((qId, idx) => {
+    insertSecQ.run(`esq-ibps-res-${qId}`, 'sec-ibps-res', qId, idx);
+  });
+
+  insertSection.run('sec-ibps-qnt', 'exam-ibps-speed-01', 'Quantitative Aptitude', 'मात्रात्मक योग्यता', 2);
+  ['q-qnt-01', 'q-qnt-02', 'q-qnt-03', 'q-qnt-04', 'q-qnt-05'].forEach((qId, idx) => {
+    insertSecQ.run(`esq-ibps-qnt-${qId}`, 'sec-ibps-qnt', qId, idx);
+  });
+
+  // Seed Verified Attempt for Student 01
+  const insertAtt = db.prepare(`
+    INSERT INTO attempts (
+      id, exam_id, user_id, started_at, submitted_at, expires_at, status,
+      score, total_marks, total_questions, correct_count, incorrect_count,
+      unanswered_count, accuracy_percentage, time_spent_seconds, section_scores_json,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const sampleSectionScores = {
+    'sec-res': { sectionId: 'sec-res', sectionNameEn: 'General Intelligence & Reasoning', sectionNameHi: 'सामान्य बुद्धि एवं तर्कशक्ति', score: 10.0, maxMarks: 10.0, correct: 5, incorrect: 0, unanswered: 0 },
+    'sec-gk': { sectionId: 'sec-gk', sectionNameEn: 'General Awareness', sectionNameHi: 'सामान्य जागरूकता', score: 7.5, maxMarks: 10.0, correct: 4, incorrect: 1, unanswered: 0 },
+    'sec-qnt': { sectionId: 'sec-qnt', sectionNameEn: 'Quantitative Aptitude', sectionNameHi: 'मात्रात्मक योग्यता', score: 10.0, maxMarks: 10.0, correct: 5, incorrect: 0, unanswered: 0 },
+    'sec-eng': { sectionId: 'sec-eng', sectionNameEn: 'English Comprehension', sectionNameHi: 'अंग्रेजी भाषा एवं बोधगम्यता', score: 6.5, maxMarks: 10.0, correct: 4, incorrect: 1, unanswered: 0 },
+  };
+
+  insertAtt.run(
+    'attempt-demo-01',
+    'exam-ssc-cgl-01',
+    'user-student-01',
+    new Date(Date.now() - 3600000).toISOString(),
+    new Date(Date.now() - 2000000).toISOString(),
+    new Date(Date.now() - 1800000).toISOString(),
+    'SUBMITTED',
+    34.0,
+    40.0,
+    20,
+    18,
+    2,
+    0,
+    90.0,
+    1240,
+    JSON.stringify(sampleSectionScores),
+    now
+  );
+
+  const insertAns = db.prepare(`
+    INSERT INTO attempt_answers (
+      id, attempt_id, question_id, selected_option_id, status,
+      time_spent_seconds, is_correct, marks_awarded, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  rawQuestions.forEach((q, idx) => {
+    const isIncorrect = idx === 9 || idx === 19; // 2 mistakes
+    const selectedOpt = isIncorrect ? q.options[1].id : q.correctOptionId;
+    const isCorrect = !isIncorrect;
+    const marks = isCorrect ? 2.0 : -0.5;
+
+    insertAns.run(
+      `ans-demo-${q.id}`,
+      'attempt-demo-01',
+      q.id,
+      selectedOpt,
+      'ANSWERED',
+      45,
+      isCorrect ? 1 : 0,
+      marks,
+      now
+    );
+  });
+
+  // Seed Study Materials
+  const insertMat = db.prepare(`
+    INSERT INTO study_materials (
+      id, title_en, title_hi, description_en, description_hi,
+      category_id, subject_id, pdf_url, pages_count, file_size_mb,
+      is_published, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertMat.run('mat-01', 'Quantitative Aptitude Formula Master Booklet (English & Hindi)', 'गणित सूत्र मास्टर बुकलेट (अंग्रेजी एवं हिंदी)', 'Essential shortcuts and formulas for Algebra, Trigonometry, Geometry, and Commercial Math for SSC CGL 2026.', 'एसएससी सीजीएल 2026 के लिए बीजगणित, त्रिकोणमिति, ज्यामिति और अंकगणित के महत्वपूर्ण शॉर्टकट और सूत्र।', 'cat-ssc', 'sub-quant', '/materials/quant-formula-booklet.pdf', 48, 3.4, 1, now);
+  insertMat.run('mat-02', 'Top 500 Modern History & Indian Polity MCQs with Detailed Solutions', 'आधुनिक भारतीय इतिहास एवं संविधान के 500 महत्वपूर्ण बहुविकल्पीय प्रश्न', 'High-yield General Awareness revision module verified from previous 10 years papers.', 'पिछले 10 वर्षों के प्रश्नपत्रों से संकलित एवं विश्लेषित महत्वपूर्ण सामान्य अध्ययन रिवीजन नोट्स।', 'cat-ssc', 'sub-gk', '/materials/gk-high-yield-500.pdf', 64, 5.1, 1, now);
+  insertMat.run('mat-03', 'Root Word Vocabulary & 100 Golden Rules of English Grammar', 'रूट वर्ड शब्दावली एवं अंग्रेजी व्याकरण के 100 स्वर्णिम नियम', 'Proven techniques for spotting errors, sentence improvement, and rapid vocabulary building.', 'त्रुटि पहचान, वाक्य सुधार और तीव्र शब्दावली याद करने की सिद्ध तकनीकें।', 'cat-ssc', 'sub-english', '/materials/english-golden-rules.pdf', 36, 2.8, 1, now);
+
+  // Seed Calendar Events
+  const insertEvt = db.prepare(`
+    INSERT INTO calendar_events (id, title_en, title_hi, description_en, description_hi, date, type, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertEvt.run('evt-01', 'SSC CGL 2026 Notification Release & Application Opening', 'एसएससी सीजीएल 2026 अधिसूचना जारी एवं ऑनलाइन आवेदन शुरू', 'Official recruitment notification for Combined Graduate Level Examination.', 'संयुक्त स्नातक स्तरीय परीक्षा हेतु आधिकारिक भर्ती विज्ञापन।', '2026-10-25', 'NOTIFICATION', now);
+  insertEvt.run('evt-02', 'IBPS PO 2026 Prelims Exam Phase 1', 'आईबीपीएस पीओ 2026 प्रारंभिक परीक्षा चरण 1', 'Online computer-based preliminary examination nationwide.', 'देश भर के केंद्रों पर ऑनलाइन कंप्यूटर आधारित प्रारंभिक परीक्षा।', '2026-11-08', 'EXAM', now);
+  insertEvt.run('evt-03', 'RRB NTPC CBT-1 City Intimation & Admit Card Download', 'आरआरबी एनटीपीसी सीबीटी-1 परीक्षा शहर सूचना एवं प्रवेश पत्र', 'Download candidate exam city slips and e-call letters from regional RRB portals.', 'क्षेत्रीय आरआरबी पोर्टल्स से परीक्षा शहर पर्ची एवं ई-कॉल लेटर डाउनलोड करें।', '2026-11-15', 'ADMIT_CARD', now);
+
+  // Seed Student Planner
+  const insertTask = db.prepare(`
+    INSERT INTO student_tasks (id, user_id, title, due_date, priority, is_completed, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertTask.run('task-01', 'user-student-01', 'Revise Geometry Mensuration Formulas & Solve 25 Questions', '2026-10-15', 'HIGH', 1, now);
+  insertTask.run('task-02', 'user-student-01', 'Take SSC CGL Full Mock 01 and analyze wrong answers', '2026-10-16', 'HIGH', 0, now);
+  insertTask.run('task-03', 'user-student-01', 'Read The Hindu Editorial & note 10 unfamiliar vocabulary idioms', '2026-10-17', 'MEDIUM', 0, now);
+
+  const insertSticky = db.prepare(`
+    INSERT INTO student_sticky_notes (id, user_id, content, color, x, y, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertSticky.run('stk-01', 'user-student-01', '📌 Remember: For Syllogism, never assume truth beyond the Venn diagram boundaries. Check "Either-Or" conditions carefully!', 'yellow', 20, 20, now);
+  insertSticky.run('stk-02', 'user-student-01', '🎯 Quantitative target: In Speed Drill, don\'t spend more than 50 seconds on any arithmetic question. Skip and flag for review!', 'mint', 320, 20, now);
+
+  const insertGoal = db.prepare(`
+    INSERT INTO student_goals (id, user_id, target_exam_en, target_exam_hi, target_score, target_date, daily_study_hours, notes, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insertGoal.run('goal-01', 'user-student-01', 'SSC CGL Tier 1 & Tier 2 2026 (Assistant Section Officer)', 'एसएससी सीजीएल टियर 1 एवं 2 2026', 165, '2026-12-20', 6, 'Consistently aim for 90%+ accuracy in Reasoning and Quantitative Aptitude.', now);
+
+  console.log('Production SQLite database successfully seeded.');
+}
+
+// Full 20 Questions Seed Definition
+function getSeedQuestions(): Question[] {
+  return [
     {
       id: 'q-res-01',
       subjectId: 'sub-reasoning',
@@ -328,8 +828,6 @@ function createInitialSeedData(): DatabaseSchema {
         { id: 'opt-res-05-d', textEn: 'Brass', textHi: 'पीतल' },
       ],
     },
-
-    // --- SECTION 2: GENERAL AWARENESS (5 questions) ---
     {
       id: 'q-gk-01',
       subjectId: 'sub-gk',
@@ -366,8 +864,8 @@ function createInitialSeedData(): DatabaseSchema {
       options: [
         { id: 'opt-gk-02-a', textEn: '1764', textHi: '1764' },
         { id: 'opt-gk-02-b', textEn: '1757', textHi: '1757' },
-        { id: 'opt-gk-02-c', textEn: '1857', textHi: '1857' },
         { id: 'opt-gk-02-d', textEn: '1761', textHi: '1761' },
+        { id: 'opt-gk-02-c', textEn: '1857', textHi: '1857' },
       ],
     },
     {
@@ -430,8 +928,6 @@ function createInitialSeedData(): DatabaseSchema {
         { id: 'opt-gk-05-d', textEn: 'Sardar Vallabhbhai Patel', textHi: 'सरदार वल्लभभाई पटेल' },
       ],
     },
-
-    // --- SECTION 3: QUANTITATIVE APTITUDE (5 questions) ---
     {
       id: 'q-qnt-01',
       subjectId: 'sub-quant',
@@ -502,8 +998,8 @@ function createInitialSeedData(): DatabaseSchema {
       positiveMarks: 2.0,
       negativeMarks: 0.5,
       correctOptionId: 'opt-qnt-04-c',
-      explanationEn: 'Speed in m/s = $72 \\times \\frac{5}{18} = 20\\text{ m/s}$.\nTotal distance to cover = Length of train + Length of platform = $180 + 220 = 400\\text{ m}$.\nTime = $\\frac{400}{20} = 20\\text{ seconds}$.',
-      explanationHi: 'चाल (मीटर/सेकंड में) = $72 \\times \\frac{5}{18} = 20$ मी/से।\nकुल तय की जाने वाली दूरी = रेलगाड़ी की लंबाई + प्लेटफार्म की लंबाई = $180 + 220 = 400$ मीटर।\nसमय = $\\frac{400}{20} = 20$ सेकंड।',
+      explanationEn: 'Speed in m/s = $72 \\times \\frac{5}{18} = 20\\text{ m/s}$.\nTotal distance to cover = $180 + 220 = 400\\text{ m}$.\nTime = $\\frac{400}{20} = 20\\text{ seconds}$.',
+      explanationHi: 'चाल (मीटर/सेकंड में) = $72 \\times \\frac{5}{18} = 20$ मी/से।\nकुल दूरी = $180 + 220 = 400$ मीटर।\nसमय = $\\frac{400}{20} = 20$ सेकंड।',
       createdAt: new Date().toISOString(),
       options: [
         { id: 'opt-qnt-04-a', textEn: '15 seconds', textHi: '15 सेकंड' },
@@ -532,8 +1028,6 @@ function createInitialSeedData(): DatabaseSchema {
         { id: 'opt-qnt-05-d', textEn: '54', textHi: '54' },
       ],
     },
-
-    // --- SECTION 4: ENGLISH LANGUAGE & COMPREHENSION (5 questions) ---
     {
       id: 'q-eng-01',
       subjectId: 'sub-english',
@@ -635,313 +1129,1034 @@ function createInitialSeedData(): DatabaseSchema {
       ],
     },
   ];
+}
 
-  // Primary Exam: SSC CGL Tier 1 Mock Test 2026
-  const sscCglExam: Exam = {
-    id: 'exam-ssc-cgl-01',
-    categoryId: 'cat-ssc',
-    titleEn: 'SSC CGL Tier 1 Full Mock Test 2026 (All India Rank Series 01)',
-    titleHi: 'एसएससी सीजीएल टियर 1 संपूर्ण मॉक टेस्ट 2026 (अखिल भारतीय रैंक श्रृंखला 01)',
-    descriptionEn: 'Official-pattern bilingual CBT full-length test covering Reasoning, General Awareness, Quantitative Aptitude, and English Comprehension with authentic negative marking.',
-    descriptionHi: 'तर्कशक्ति, सामान्य ज्ञान, गणित और अंग्रेजी बोधगम्यता का आधिकारिक परीक्षा पैटर्न पर आधारित वास्तविक सीबीटी मॉक टेस्ट।',
-    instructionsEn: '1. Total 20 questions in 4 sections.\n2. Time duration is 30 minutes.\n3. Each correct answer carries +2.0 marks; each incorrect answer incurs a penalty of -0.5 marks.\n4. You can switch between English and Hindi at any time using the language selector.\n5. Click on question numbers in the palette on the right to navigate.\n6. Submitting the exam is final and locks all answers.',
-    instructionsHi: '1. 4 अनुभागों में कुल 20 प्रश्न हैं।\n2. परीक्षा की कुल अवधि 30 मिनट है।\n3. प्रत्येक सही उत्तर के लिए +2.0 अंक हैं; प्रत्येक गलत उत्तर के लिए -0.5 अंक की नकारात्मक अंकन (नेगेटिव मार्किंग) होगी।\n4. आप भाषा टॉगल द्वारा कभी भी अंग्रेजी और हिंदी में प्रश्न बदल सकते हैं।\n5. दाईं ओर दिए गए पैलेट से सीधे किसी भी प्रश्न पर जा सकते हैं।\n6. सबमिट करने के बाद बदलाव नहीं किया जा सकता।',
-    durationMinutes: 30,
-    totalMarks: 40,
-    isPublished: true,
-    sections: [
-      {
-        id: 'sec-res',
-        nameEn: 'General Intelligence & Reasoning',
-        nameHi: 'सामान्य बुद्धि एवं तर्कशक्ति',
-        order: 1,
-        questionIds: ['q-res-01', 'q-res-02', 'q-res-03', 'q-res-04', 'q-res-05'],
-      },
-      {
-        id: 'sec-gk',
-        nameEn: 'General Awareness',
-        nameHi: 'सामान्य जागरूकता',
-        order: 2,
-        questionIds: ['q-gk-01', 'q-gk-02', 'q-gk-03', 'q-gk-04', 'q-gk-05'],
-      },
-      {
-        id: 'sec-qnt',
-        nameEn: 'Quantitative Aptitude',
-        nameHi: 'मात्रात्मक योग्यता',
-        order: 3,
-        questionIds: ['q-qnt-01', 'q-qnt-02', 'q-qnt-03', 'q-qnt-04', 'q-qnt-05'],
-      },
-      {
-        id: 'sec-eng',
-        nameEn: 'English Comprehension',
-        nameHi: 'अंग्रेजी भाषा एवं बोधगम्यता',
-        order: 4,
-        questionIds: ['q-eng-01', 'q-eng-02', 'q-eng-03', 'q-eng-04', 'q-eng-05'],
-      },
-    ],
-    settings: {
-      allowResume: true,
-      showInstantResult: true,
-      showAnswerReview: true,
-      shuffleQuestions: false,
-      shuffleOptions: false,
-      maxAttempts: 3,
-    },
-    createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+// ==========================================
+// SQLITE RELATIONAL REPOSITORY METHODS
+// ==========================================
 
-  // Secondary Exam: Banking speed test (Draft/Published)
-  const ibpsExam: Exam = {
-    id: 'exam-ibps-speed-01',
-    categoryId: 'cat-banking',
-    titleEn: 'IBPS PO Prelims 2026 — Reasoning & Quant Speed Drill 01',
-    titleHi: 'आईबीपीएस पीओ प्रीलिम्स 2026 — तर्कशक्ति एवं गणित स्पीड ड्रिल 01',
-    descriptionEn: 'High-speed 10-question drill designed to test accuracy under strict time pressure for banking aspirants.',
-    descriptionHi: 'बैंकिंग उम्मीदवारों के लिए समय-सीमा में सटीकता परखने हेतु 10-प्रश्नों की हाई-स्पीड ड्रिल।',
-    instructionsEn: '10 questions, 15 minutes. +1.0 for correct, -0.25 for incorrect.',
-    instructionsHi: '10 प्रश्न, 15 मिनट। प्रत्येक सही उत्तर के लिए +1.0, गलत के लिए -0.25 अंक।',
-    durationMinutes: 15,
-    totalMarks: 20,
-    isPublished: true,
-    sections: [
-      {
-        id: 'sec-ibps-res',
-        nameEn: 'Reasoning Ability',
-        nameHi: 'तर्कशक्ति क्षमता',
-        order: 1,
-        questionIds: ['q-res-01', 'q-res-02', 'q-res-03', 'q-res-04', 'q-res-05'],
-      },
-      {
-        id: 'sec-ibps-qnt',
-        nameEn: 'Quantitative Aptitude',
-        nameHi: 'मात्रात्मक योग्यता',
-        order: 2,
-        questionIds: ['q-qnt-01', 'q-qnt-02', 'q-qnt-03', 'q-qnt-04', 'q-qnt-05'],
-      },
-    ],
-    settings: {
-      allowResume: true,
-      showInstantResult: true,
-      showAnswerReview: true,
-      shuffleQuestions: false,
-      shuffleOptions: false,
-      maxAttempts: 5,
-    },
-    createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+export function findUserByEmail(email: string): User | null {
+  const db = getSqliteDb();
+  const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email.trim().toLowerCase()) as any;
+  if (!row) return null;
+  return mapUser(row);
+}
 
-  // Pre-seed an attempt for student user 1 to show results & review immediately
-  const sampleAttempt: ExamAttempt = {
-    id: 'attempt-demo-01',
-    examId: 'exam-ssc-cgl-01',
-    userId: 'user-student-01',
-    startedAt: new Date(Date.now() - 3600000).toISOString(),
-    submittedAt: new Date(Date.now() - 2000000).toISOString(),
-    expiresAt: new Date(Date.now() - 1800000).toISOString(),
-    status: 'SUBMITTED',
-    timeSpentSeconds: 1240,
-    score: 34.0,
-    totalMarks: 40,
-    totalQuestions: 20,
-    correctCount: 18,
-    incorrectCount: 2,
-    unansweredCount: 0,
-    accuracyPercentage: 90.0,
-    answers: {
-      'q-res-01': { questionId: 'q-res-01', selectedOptionId: 'opt-res-01-c', status: 'ANSWERED', timeSpentSeconds: 45, isCorrect: true, marksAwarded: 2.0 },
-      'q-res-02': { questionId: 'q-res-02', selectedOptionId: 'opt-res-02-b', status: 'ANSWERED', timeSpentSeconds: 65, isCorrect: true, marksAwarded: 2.0 },
-      'q-res-03': { questionId: 'q-res-03', selectedOptionId: 'opt-res-03-b', status: 'ANSWERED', timeSpentSeconds: 50, isCorrect: true, marksAwarded: 2.0 },
-      'q-res-04': { questionId: 'q-res-04', selectedOptionId: 'opt-res-04-a', status: 'ANSWERED', timeSpentSeconds: 70, isCorrect: true, marksAwarded: 2.0 },
-      'q-res-05': { questionId: 'q-res-05', selectedOptionId: 'opt-res-05-d', status: 'ANSWERED', timeSpentSeconds: 30, isCorrect: true, marksAwarded: 2.0 },
-      'q-gk-01': { questionId: 'q-gk-01', selectedOptionId: 'opt-gk-01-c', status: 'ANSWERED', timeSpentSeconds: 25, isCorrect: true, marksAwarded: 2.0 },
-      'q-gk-02': { questionId: 'q-gk-02', selectedOptionId: 'opt-gk-02-b', status: 'ANSWERED', timeSpentSeconds: 20, isCorrect: true, marksAwarded: 2.0 },
-      'q-gk-03': { questionId: 'q-gk-03', selectedOptionId: 'opt-gk-03-d', status: 'ANSWERED', timeSpentSeconds: 18, isCorrect: true, marksAwarded: 2.0 },
-      'q-gk-04': { questionId: 'q-gk-04', selectedOptionId: 'opt-gk-04-c', status: 'ANSWERED', timeSpentSeconds: 30, isCorrect: true, marksAwarded: 2.0 },
-      'q-gk-05': { questionId: 'q-gk-05', selectedOptionId: 'opt-gk-05-b', status: 'ANSWERED', timeSpentSeconds: 40, isCorrect: false, marksAwarded: -0.5 }, // incorrect
-      'q-qnt-01': { questionId: 'q-qnt-01', selectedOptionId: 'opt-qnt-01-b', status: 'ANSWERED', timeSpentSeconds: 80, isCorrect: true, marksAwarded: 2.0 },
-      'q-qnt-02': { questionId: 'q-qnt-02', selectedOptionId: 'opt-qnt-02-c', status: 'ANSWERED', timeSpentSeconds: 95, isCorrect: true, marksAwarded: 2.0 },
-      'q-qnt-03': { questionId: 'q-qnt-03', selectedOptionId: 'opt-qnt-03-a', status: 'ANSWERED', timeSpentSeconds: 110, isCorrect: true, marksAwarded: 2.0 },
-      'q-qnt-04': { questionId: 'q-qnt-04', selectedOptionId: 'opt-qnt-04-c', status: 'ANSWERED', timeSpentSeconds: 120, isCorrect: true, marksAwarded: 2.0 },
-      'q-qnt-05': { questionId: 'q-qnt-05', selectedOptionId: 'opt-qnt-05-b', status: 'ANSWERED', timeSpentSeconds: 85, isCorrect: true, marksAwarded: 2.0 },
-      'q-eng-01': { questionId: 'q-eng-01', selectedOptionId: 'opt-eng-01-a', status: 'ANSWERED', timeSpentSeconds: 30, isCorrect: true, marksAwarded: 2.0 },
-      'q-eng-02': { questionId: 'q-eng-02', selectedOptionId: 'opt-eng-02-c', status: 'ANSWERED', timeSpentSeconds: 28, isCorrect: true, marksAwarded: 2.0 },
-      'q-eng-03': { questionId: 'q-eng-03', selectedOptionId: 'opt-eng-03-b', status: 'ANSWERED', timeSpentSeconds: 55, isCorrect: true, marksAwarded: 2.0 },
-      'q-eng-04': { questionId: 'q-eng-04', selectedOptionId: 'opt-eng-04-a', status: 'ANSWERED', timeSpentSeconds: 40, isCorrect: true, marksAwarded: 2.0 },
-      'q-eng-05': { questionId: 'q-eng-05', selectedOptionId: 'opt-eng-05-a', status: 'ANSWERED', timeSpentSeconds: 60, isCorrect: false, marksAwarded: -0.5 }, // incorrect
-    },
-    sectionScores: {
-      'sec-res': { sectionId: 'sec-res', sectionNameEn: 'General Intelligence & Reasoning', sectionNameHi: 'सामान्य बुद्धि एवं तर्कशक्ति', score: 10.0, maxMarks: 10.0, correct: 5, incorrect: 0, unanswered: 0 },
-      'sec-gk': { sectionId: 'sec-gk', sectionNameEn: 'General Awareness', sectionNameHi: 'सामान्य जागरूकता', score: 7.5, maxMarks: 10.0, correct: 4, incorrect: 1, unanswered: 0 },
-      'sec-qnt': { sectionId: 'sec-qnt', sectionNameEn: 'Quantitative Aptitude', sectionNameHi: 'मात्रात्मक योग्यता', score: 10.0, maxMarks: 10.0, correct: 5, incorrect: 0, unanswered: 0 },
-      'sec-eng': { sectionId: 'sec-eng', sectionNameEn: 'English Comprehension', sectionNameHi: 'अंग्रेजी भाषा एवं बोधगम्यता', score: 6.5, maxMarks: 10.0, correct: 4, incorrect: 1, unanswered: 0 },
-    },
-  };
+export function findUserById(id: string): User | null {
+  const db = getSqliteDb();
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return mapUser(row);
+}
 
-  const studyMaterials: StudyMaterial[] = [
-    {
-      id: 'mat-01',
-      titleEn: 'Quantitative Aptitude Formula Master Booklet (English & Hindi)',
-      titleHi: 'गणित सूत्र मास्टर बुकलेट (अंग्रेजी एवं हिंदी)',
-      descriptionEn: 'Essential shortcuts and formulas for Algebra, Trigonometry, Geometry, and Commercial Math for SSC CGL 2026.',
-      descriptionHi: 'एसएससी सीजीएल 2026 के लिए बीजगणित, त्रिकोणमिति, ज्यामिति और अंकगणित के महत्वपूर्ण शॉर्टकट और सूत्र।',
-      categoryId: 'cat-ssc',
-      subjectId: 'sub-quant',
-      pdfUrl: '/materials/quant-formula-booklet.pdf',
-      pagesCount: 48,
-      fileSizeMb: 3.4,
-      isPublished: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'mat-02',
-      titleEn: 'Top 500 Modern History & Indian Polity MCQs with Detailed Solutions',
-      titleHi: 'आधुनिक भारतीय इतिहास एवं संविधान के 500 महत्वपूर्ण बहुविकल्पीय प्रश्न',
-      descriptionEn: 'High-yield General Awareness revision module verified from previous 10 years papers.',
-      descriptionHi: 'पिछले 10 वर्षों के प्रश्नपत्रों से संकलित एवं विश्लेषित महत्वपूर्ण सामान्य अध्ययन रिवीजन नोट्स।',
-      categoryId: 'cat-ssc',
-      subjectId: 'sub-gk',
-      pdfUrl: '/materials/gk-high-yield-500.pdf',
-      pagesCount: 64,
-      fileSizeMb: 5.1,
-      isPublished: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'mat-03',
-      titleEn: 'Root Word Vocabulary & 100 Golden Rules of English Grammar',
-      titleHi: 'रूट वर्ड शब्दावली एवं अंग्रेजी व्याकरण के 100 स्वर्णिम नियम',
-      descriptionEn: 'Proven techniques for spotting errors, sentence improvement, and rapid vocabulary building.',
-      descriptionHi: 'त्रुटि पहचान, वाक्य सुधार और तीव्र शब्दावली याद करने की सिद्ध तकनीकें।',
-      categoryId: 'cat-ssc',
-      subjectId: 'sub-english',
-      pdfUrl: '/materials/english-golden-rules.pdf',
-      pagesCount: 36,
-      fileSizeMb: 2.8,
-      isPublished: true,
-      createdAt: new Date().toISOString(),
-    },
-  ];
+export function createUser(u: User): User {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO users (
+      id, name, email, password_hash, role, is_active, is_verified, email_verification_token,
+      preferred_language, points, streak_days, last_login_date, tests_attempted,
+      tests_completed, avg_score, avg_accuracy, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    u.id,
+    u.name,
+    u.email.toLowerCase(),
+    u.passwordHash,
+    u.role,
+    u.isActive ? 1 : 0,
+    u.isVerified ? 1 : 0,
+    u.emailVerificationToken || null,
+    u.preferredLanguage,
+    u.stats.points,
+    u.stats.streakDays,
+    u.stats.lastLoginDate || null,
+    u.stats.testsAttempted,
+    u.stats.testsCompleted,
+    u.stats.avgScore,
+    u.stats.avgAccuracy,
+    u.createdAt || now,
+    now
+  );
+  return u;
+}
 
-  const calendarEvents: CalendarEvent[] = [
-    {
-      id: 'evt-01',
-      titleEn: 'SSC CGL 2026 Notification Release & Application Opening',
-      titleHi: 'एसएससी सीजीएल 2026 अधिसूचना जारी एवं ऑनलाइन आवेदन शुरू',
-      descriptionEn: 'Official recruitment notification for Combined Graduate Level Examination.',
-      descriptionHi: 'संयुक्त स्नातक स्तरीय परीक्षा (CGL) हेतु आधिकारिक भर्ती विज्ञापन।',
-      date: '2026-10-25',
-      type: 'NOTIFICATION',
-    },
-    {
-      id: 'evt-02',
-      titleEn: 'IBPS PO 2026 Prelims Exam Phase 1',
-      titleHi: 'आईबीपीएस पीओ 2026 प्रारंभिक परीक्षा चरण 1',
-      descriptionEn: 'Online computer-based preliminary examination nationwide.',
-      descriptionHi: 'देश भर के केंद्रों पर ऑनलाइन कंप्यूटर आधारित प्रारंभिक परीक्षा।',
-      date: '2026-11-08',
-      type: 'EXAM',
-    },
-    {
-      id: 'evt-03',
-      titleEn: 'RRB NTPC CBT-1 City Intimation & Admit Card Download',
-      titleHi: 'आरआरबी एनटीपीसी सीबीटी-1 परीक्षा शहर सूचना एवं प्रवेश पत्र',
-      descriptionEn: 'Download candidate exam city slips and e-call letters from regional RRB portals.',
-      descriptionHi: 'क्षेत्रीय आरआरबी पोर्टल्स से परीक्षा शहर पर्ची एवं ई-कॉल लेटर डाउनलोड करें।',
-      date: '2026-11-15',
-      type: 'ADMIT_CARD',
-    },
-  ];
+export function updateUser(u: User): User {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE users SET
+      name = ?, email = ?, password_hash = ?, role = ?, is_active = ?,
+      is_verified = ?, preferred_language = ?, points = ?, streak_days = ?,
+      last_login_date = ?, tests_attempted = ?, tests_completed = ?,
+      avg_score = ?, avg_accuracy = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    u.name,
+    u.email.toLowerCase(),
+    u.passwordHash,
+    u.role,
+    u.isActive ? 1 : 0,
+    u.isVerified ? 1 : 0,
+    u.preferredLanguage,
+    u.stats.points,
+    u.stats.streakDays,
+    u.stats.lastLoginDate || null,
+    u.stats.testsAttempted,
+    u.stats.testsCompleted,
+    u.stats.avgScore,
+    u.stats.avgAccuracy,
+    now,
+    u.id
+  );
+  return u;
+}
 
-  const tasks: StudentTask[] = [
-    {
-      id: 'task-01',
-      userId: 'user-student-01',
-      title: 'Revise Geometry Mensuration Formulas & Solve 25 Questions',
-      dueDate: '2026-10-15',
-      priority: 'HIGH',
-      isCompleted: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'task-02',
-      userId: 'user-student-01',
-      title: 'Take SSC CGL Full Mock 01 and analyze wrong answers',
-      dueDate: '2026-10-16',
-      priority: 'HIGH',
-      isCompleted: false,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'task-03',
-      userId: 'user-student-01',
-      title: 'Read The Hindu Editorial & note 10 unfamiliar vocabulary idioms',
-      dueDate: '2026-10-17',
-      priority: 'MEDIUM',
-      isCompleted: false,
-      createdAt: new Date().toISOString(),
-    },
-  ];
+export function deleteUser(id: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  return true;
+}
 
-  const stickyNotes: StudentStickyNote[] = [
-    {
-      id: 'stk-01',
-      userId: 'user-student-01',
-      content: '📌 Remember: For Syllogism, never assume truth beyond the Venn diagram boundaries. Check "Either-Or" conditions carefully!',
-      color: 'yellow',
-      x: 20,
-      y: 20,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'stk-02',
-      userId: 'user-student-01',
-      content: '🎯 Quantitative target: In Speed Drill, don\'t spend more than 50 seconds on any arithmetic question. Skip and flag for review!',
-      color: 'mint',
-      x: 320,
-      y: 20,
-      createdAt: new Date().toISOString(),
-    },
-  ];
+export function getAllUsers(): User[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM users ORDER BY created_at DESC').all() as any[];
+  return rows.map(mapUser);
+}
 
-  const datedNotes: StudentDatedNote[] = [
-    {
-      id: 'dnote-01',
-      userId: 'user-student-01',
-      date: '2026-10-12',
-      content: 'Completed Mock 01 with 34/40 marks (85%). Made 2 silly mistakes: 1 in GK (Nehru Lahore session) and 1 in English Passive voice. Need to review Subject-Verb Agreement rules.',
-      createdAt: new Date().toISOString(),
-    },
-  ];
+export function getAllCategories(): Category[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM categories ORDER BY name_en ASC').all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    nameEn: r.name_en,
+    nameHi: r.name_hi,
+    slug: r.slug,
+    descriptionEn: r.description_en,
+    descriptionHi: r.description_hi,
+  }));
+}
 
-  const goals: Record<string, StudentGoal> = {
-    'user-student-01': {
-      id: 'goal-01',
-      userId: 'user-student-01',
-      targetExamEn: 'SSC CGL Tier 1 & Tier 2 2026 (Assistant Section Officer)',
-      targetExamHi: 'एसएससी सीजीएल टियर 1 एवं 2 2026 (सहायक अनुभाग अधिकारी)',
-      targetScore: 165,
-      targetDate: '2026-12-20',
-      dailyStudyHours: 6,
-      notes: 'Consistently aim for 90%+ accuracy in Reasoning and Quantitative Aptitude.',
-      updatedAt: new Date().toISOString(),
-    },
-  };
+export function getAllSubjects(): Subject[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM subjects ORDER BY name_en ASC').all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    categoryId: r.category_id,
+    nameEn: r.name_en,
+    nameHi: r.name_hi,
+  }));
+}
+
+export function getAllTopics(): Topic[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM topics ORDER BY name_en ASC').all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    subjectId: r.subject_id,
+    nameEn: r.name_en,
+    nameHi: r.name_hi,
+  }));
+}
+
+export function getAllQuestions(filters?: { subjectId?: string; difficulty?: string; search?: string }): Question[] {
+  const db = getSqliteDb();
+  let sql = 'SELECT * FROM questions WHERE 1=1';
+  const params: any[] = [];
+
+  if (filters?.subjectId) {
+    sql += ' AND subject_id = ?';
+    params.push(filters.subjectId);
+  }
+  if (filters?.difficulty) {
+    sql += ' AND difficulty = ?';
+    params.push(filters.difficulty);
+  }
+  if (filters?.search) {
+    sql += ' AND (text_en LIKE ? OR text_hi LIKE ?)';
+    const term = `%${filters.search}%`;
+    params.push(term, term);
+  }
+  sql += ' ORDER BY created_at DESC';
+
+  const qRows = db.prepare(sql).all(...params) as any[];
+  const optStmt = db.prepare('SELECT * FROM question_options WHERE question_id = ? ORDER BY sort_order ASC');
+
+  return qRows.map((q) => {
+    const opts = (optStmt.all(q.id) as any[]).map((o) => ({
+      id: o.id,
+      textEn: o.text_en,
+      textHi: o.text_hi,
+    }));
+    return {
+      id: q.id,
+      subjectId: q.subject_id,
+      topicId: q.topic_id || undefined,
+      difficulty: q.difficulty,
+      textEn: q.text_en,
+      textHi: q.text_hi,
+      imageUrl: q.image_url || undefined,
+      positiveMarks: q.positive_marks,
+      negativeMarks: q.negative_marks,
+      options: opts,
+      correctOptionId: q.correct_option_id,
+      explanationEn: q.explanation_en,
+      explanationHi: q.explanation_hi,
+      createdAt: q.created_at,
+    };
+  });
+}
+
+export function getQuestionById(id: string): Question | null {
+  const db = getSqliteDb();
+  const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(id) as any;
+  if (!q) return null;
+
+  const opts = (db.prepare('SELECT * FROM question_options WHERE question_id = ? ORDER BY sort_order ASC').all(id) as any[]).map((o) => ({
+    id: o.id,
+    textEn: o.text_en,
+    textHi: o.text_hi,
+  }));
 
   return {
-    users: [adminUser, studentUser, studentUser2, studentUser3],
-    categories,
-    subjects,
-    topics,
-    questions,
-    exams: [sscCglExam, ibpsExam],
-    attempts: [sampleAttempt],
-    studyMaterials,
-    calendarEvents,
-    tasks,
-    stickyNotes,
-    datedNotes,
-    goals,
+    id: q.id,
+    subjectId: q.subject_id,
+    topicId: q.topic_id || undefined,
+    difficulty: q.difficulty,
+    textEn: q.text_en,
+    textHi: q.text_hi,
+    imageUrl: q.image_url || undefined,
+    positiveMarks: q.positive_marks,
+    negativeMarks: q.negative_marks,
+    options: opts,
+    correctOptionId: q.correct_option_id,
+    explanationEn: q.explanation_en,
+    explanationHi: q.explanation_hi,
+    createdAt: q.created_at,
   };
+}
+
+export function createQuestion(q: Question): Question {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO questions (
+      id, subject_id, topic_id, difficulty, text_en, text_hi,
+      image_url, positive_marks, negative_marks, correct_option_id,
+      explanation_en, explanation_hi, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    q.id,
+    q.subjectId,
+    q.topicId || null,
+    q.difficulty,
+    q.textEn,
+    q.textHi,
+    q.imageUrl || null,
+    q.positiveMarks,
+    q.negativeMarks,
+    q.correctOptionId,
+    q.explanationEn,
+    q.explanationHi,
+    q.createdAt || now
+  );
+
+  const insertOpt = db.prepare(`
+    INSERT INTO question_options (id, question_id, text_en, text_hi, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  q.options.forEach((opt, idx) => {
+    insertOpt.run(opt.id, q.id, opt.textEn, opt.textHi, idx);
+  });
+
+  return q;
+}
+
+export function deleteQuestion(id: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM questions WHERE id = ?').run(id);
+  return true;
+}
+
+export function getAllExams(onlyPublished = false): Exam[] {
+  const db = getSqliteDb();
+  let sql = 'SELECT * FROM exams';
+  if (onlyPublished) sql += ' WHERE is_published = 1';
+  sql += ' ORDER BY created_at DESC';
+
+  const rows = db.prepare(sql).all() as any[];
+  return rows.map((r) => loadFullExam(r, db));
+}
+
+export function getExamById(id: string): Exam | null {
+  const db = getSqliteDb();
+  const row = db.prepare('SELECT * FROM exams WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return loadFullExam(row, db);
+}
+
+function loadFullExam(r: any, db: DatabaseSync): Exam {
+  const secRows = db.prepare('SELECT * FROM exam_sections WHERE exam_id = ? ORDER BY display_order ASC').all(r.id) as any[];
+  const qStmt = db.prepare('SELECT question_id FROM exam_section_questions WHERE section_id = ? ORDER BY display_order ASC');
+
+  const sections: ExamSection[] = secRows.map((s) => {
+    const qIds = (qStmt.all(s.id) as any[]).map((row) => row.question_id);
+    return {
+      id: s.id,
+      nameEn: s.name_en,
+      nameHi: s.name_hi,
+      order: s.display_order,
+      questionIds: qIds,
+    };
+  });
+
+  return {
+    id: r.id,
+    categoryId: r.category_id,
+    titleEn: r.title_en,
+    titleHi: r.title_hi,
+    descriptionEn: r.description_en || '',
+    descriptionHi: r.description_hi || '',
+    instructionsEn: r.instructions_en || '',
+    instructionsHi: r.instructions_hi || '',
+    durationMinutes: r.duration_minutes,
+    totalMarks: r.total_marks,
+    isPublished: Boolean(r.is_published),
+    sections,
+    settings: {
+      allowResume: Boolean(r.allow_resume),
+      showInstantResult: Boolean(r.show_instant_result),
+      showAnswerReview: Boolean(r.show_answer_review),
+      shuffleQuestions: Boolean(r.shuffle_questions),
+      shuffleOptions: Boolean(r.shuffle_options),
+      maxAttempts: r.max_attempts,
+    },
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export function createExam(e: Exam): Exam {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO exams (
+      id, category_id, title_en, title_hi, description_en, description_hi,
+      instructions_en, instructions_hi, duration_minutes, total_marks,
+      is_published, allow_resume, show_instant_result, show_answer_review,
+      shuffle_questions, shuffle_options, max_attempts, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    e.id,
+    e.categoryId,
+    e.titleEn,
+    e.titleHi,
+    e.descriptionEn || '',
+    e.descriptionHi || '',
+    e.instructionsEn || '',
+    e.instructionsHi || '',
+    e.durationMinutes,
+    e.totalMarks,
+    e.isPublished ? 1 : 0,
+    e.settings?.allowResume ? 1 : 0,
+    e.settings?.showInstantResult ? 1 : 0,
+    e.settings?.showAnswerReview ? 1 : 0,
+    e.settings?.shuffleQuestions ? 1 : 0,
+    e.settings?.shuffleOptions ? 1 : 0,
+    e.settings?.maxAttempts ?? 3,
+    e.createdAt || now,
+    now
+  );
+
+  const insertSec = db.prepare(`
+    INSERT INTO exam_sections (id, exam_id, name_en, name_hi, display_order)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const insertQ = db.prepare(`
+    INSERT INTO exam_section_questions (id, section_id, question_id, display_order)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  (e.sections || []).forEach((sec, sIdx) => {
+    insertSec.run(sec.id, e.id, sec.nameEn, sec.nameHi, sIdx + 1);
+    (sec.questionIds || []).forEach((qId, qIdx) => {
+      insertQ.run(`esq-${sec.id}-${qId}`, sec.id, qId, qIdx + 1);
+    });
+  });
+
+  return e;
+}
+
+export function updateExam(e: Exam): Exam {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE exams SET
+      category_id = ?, title_en = ?, title_hi = ?, description_en = ?, description_hi = ?,
+      instructions_en = ?, instructions_hi = ?, duration_minutes = ?, total_marks = ?,
+      is_published = ?, allow_resume = ?, show_instant_result = ?, show_answer_review = ?,
+      shuffle_questions = ?, shuffle_options = ?, max_attempts = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    e.categoryId,
+    e.titleEn,
+    e.titleHi,
+    e.descriptionEn || '',
+    e.descriptionHi || '',
+    e.instructionsEn || '',
+    e.instructionsHi || '',
+    e.durationMinutes,
+    e.totalMarks,
+    e.isPublished ? 1 : 0,
+    e.settings?.allowResume ? 1 : 0,
+    e.settings?.showInstantResult ? 1 : 0,
+    e.settings?.showAnswerReview ? 1 : 0,
+    e.settings?.shuffleQuestions ? 1 : 0,
+    e.settings?.shuffleOptions ? 1 : 0,
+    e.settings?.maxAttempts ?? 3,
+    now,
+    e.id
+  );
+
+  if (e.sections && e.sections.length > 0) {
+    db.prepare('DELETE FROM exam_sections WHERE exam_id = ?').run(e.id);
+    const insertSec = db.prepare(`
+      INSERT INTO exam_sections (id, exam_id, name_en, name_hi, display_order)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertQ = db.prepare(`
+      INSERT INTO exam_section_questions (id, section_id, question_id, display_order)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    e.sections.forEach((sec, sIdx) => {
+      insertSec.run(sec.id, e.id, sec.nameEn, sec.nameHi, sIdx + 1);
+      (sec.questionIds || []).forEach((qId, qIdx) => {
+        insertQ.run(`esq-${sec.id}-${qId}`, sec.id, qId, qIdx + 1);
+      });
+    });
+  }
+
+  return e;
+}
+
+export function deleteExam(id: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM exams WHERE id = ?').run(id);
+  return true;
+}
+
+export function getAttemptsByUser(userId: string): ExamAttempt[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM attempts WHERE user_id = ? ORDER BY started_at DESC').all(userId) as any[];
+  return rows.map((r) => loadFullAttempt(r, db));
+}
+
+export function getAttemptsByExam(examId: string): ExamAttempt[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM attempts WHERE exam_id = ? ORDER BY started_at DESC').all(examId) as any[];
+  return rows.map((r) => loadFullAttempt(r, db));
+}
+
+export function getAllAttempts(): ExamAttempt[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM attempts ORDER BY started_at DESC').all() as any[];
+  return rows.map((r) => loadFullAttempt(r, db));
+}
+
+export function getAttemptById(id: string): ExamAttempt | null {
+  const db = getSqliteDb();
+  const row = db.prepare('SELECT * FROM attempts WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return loadFullAttempt(row, db);
+}
+
+function loadFullAttempt(r: any, db: DatabaseSync): ExamAttempt {
+  const ansRows = db.prepare('SELECT * FROM attempt_answers WHERE attempt_id = ?').all(r.id) as any[];
+  const answers: Record<string, AttemptAnswer> = {};
+
+  ansRows.forEach((a) => {
+    answers[a.question_id] = {
+      questionId: a.question_id,
+      selectedOptionId: a.selected_option_id || undefined,
+      status: a.status,
+      timeSpentSeconds: a.time_spent_seconds,
+      isCorrect: a.is_correct === null ? undefined : Boolean(a.is_correct),
+      marksAwarded: a.marks_awarded === null ? undefined : a.marks_awarded,
+    };
+  });
+
+  return {
+    id: r.id,
+    examId: r.exam_id,
+    userId: r.user_id,
+    startedAt: r.started_at,
+    submittedAt: r.submitted_at || undefined,
+    expiresAt: r.expires_at,
+    status: r.status,
+    answers,
+    score: r.score === null ? undefined : r.score,
+    totalMarks: r.total_marks === null ? undefined : r.total_marks,
+    totalQuestions: r.total_questions === null ? undefined : r.total_questions,
+    correctCount: r.correct_count === null ? undefined : r.correct_count,
+    incorrectCount: r.incorrect_count === null ? undefined : r.incorrect_count,
+    unansweredCount: r.unanswered_count === null ? undefined : r.unanswered_count,
+    accuracyPercentage: r.accuracy_percentage === null ? undefined : r.accuracy_percentage,
+    timeSpentSeconds: r.time_spent_seconds === null ? undefined : r.time_spent_seconds,
+    sectionScores: r.section_scores_json ? JSON.parse(r.section_scores_json) : undefined,
+  };
+}
+
+export function createAttempt(att: ExamAttempt): ExamAttempt {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO attempts (
+      id, exam_id, user_id, started_at, submitted_at, expires_at,
+      status, score, total_marks, total_questions, correct_count,
+      incorrect_count, unanswered_count, accuracy_percentage,
+      time_spent_seconds, section_scores_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    att.id,
+    att.examId,
+    att.userId,
+    att.startedAt,
+    att.submittedAt || null,
+    att.expiresAt,
+    att.status,
+    att.score ?? null,
+    att.totalMarks ?? null,
+    att.totalQuestions ?? null,
+    att.correctCount ?? null,
+    att.incorrectCount ?? null,
+    att.unansweredCount ?? null,
+    att.accuracyPercentage ?? null,
+    att.timeSpentSeconds ?? null,
+    att.sectionScores ? JSON.stringify(att.sectionScores) : null,
+    now
+  );
+
+  const insertAns = db.prepare(`
+    INSERT INTO attempt_answers (
+      id, attempt_id, question_id, selected_option_id, status,
+      time_spent_seconds, is_correct, marks_awarded, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  Object.values(att.answers || {}).forEach((a) => {
+    insertAns.run(
+      `ans-${att.id}-${a.questionId}`,
+      att.id,
+      a.questionId,
+      a.selectedOptionId || null,
+      a.status,
+      a.timeSpentSeconds || 0,
+      a.isCorrect === undefined ? null : a.isCorrect ? 1 : 0,
+      a.marksAwarded ?? null,
+      now
+    );
+  });
+
+  return att;
+}
+
+export function saveAttemptAnswer(attemptId: string, ans: AttemptAnswer) {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO attempt_answers (
+      id, attempt_id, question_id, selected_option_id, status,
+      time_spent_seconds, is_correct, marks_awarded, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+      selected_option_id = excluded.selected_option_id,
+      status = excluded.status,
+      time_spent_seconds = excluded.time_spent_seconds,
+      is_correct = excluded.is_correct,
+      marks_awarded = excluded.marks_awarded,
+      updated_at = excluded.updated_at
+  `).run(
+    `ans-${attemptId}-${ans.questionId}`,
+    attemptId,
+    ans.questionId,
+    ans.selectedOptionId || null,
+    ans.status,
+    ans.timeSpentSeconds || 0,
+    ans.isCorrect === undefined ? null : ans.isCorrect ? 1 : 0,
+    ans.marksAwarded ?? null,
+    now
+  );
+}
+
+export function updateAttemptSubmission(att: ExamAttempt) {
+  const db = getSqliteDb();
+  db.prepare(`
+    UPDATE attempts SET
+      status = ?, submitted_at = ?, score = ?, total_marks = ?,
+      total_questions = ?, correct_count = ?, incorrect_count = ?,
+      unanswered_count = ?, accuracy_percentage = ?, time_spent_seconds = ?,
+      section_scores_json = ?
+    WHERE id = ?
+  `).run(
+    att.status,
+    att.submittedAt || null,
+    att.score ?? null,
+    att.totalMarks ?? null,
+    att.totalQuestions ?? null,
+    att.correctCount ?? null,
+    att.incorrectCount ?? null,
+    att.unansweredCount ?? null,
+    att.accuracyPercentage ?? null,
+    att.timeSpentSeconds ?? null,
+    att.sectionScores ? JSON.stringify(att.sectionScores) : null,
+    att.id
+  );
+
+  // Update answers
+  Object.values(att.answers || {}).forEach((a) => {
+    saveAttemptAnswer(att.id, a);
+  });
+}
+
+export function getBookmarks(userId: string): Bookmark[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM bookmarks WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    questionId: r.question_id,
+    note: r.note || undefined,
+    createdAt: r.created_at,
+  }));
+}
+
+export function addBookmark(b: Bookmark): Bookmark {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO bookmarks (id, user_id, question_id, note, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, question_id) DO UPDATE SET note = excluded.note
+  `).run(b.id, b.userId, b.questionId, b.note || null, b.createdAt);
+  return b;
+}
+
+export function removeBookmark(userId: string, questionId: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM bookmarks WHERE user_id = ? AND question_id = ?').run(userId, questionId);
+  return true;
+}
+
+export function createQuestionReport(rep: QuestionReport): QuestionReport {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO question_reports (id, user_id, question_id, reason, details, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(rep.id, rep.userId, rep.questionId, rep.reason, rep.details, 'PENDING', rep.createdAt);
+  return rep;
+}
+
+export function getAllReports(status?: string): QuestionReport[] {
+  const db = getSqliteDb();
+  let sql = 'SELECT r.*, u.name as user_name, u.email as user_email, q.text_en as question_snippet FROM question_reports r LEFT JOIN users u ON r.user_id = u.id LEFT JOIN questions q ON r.question_id = q.id';
+  const params: any[] = [];
+  if (status) {
+    sql += ' WHERE r.status = ?';
+    params.push(status);
+  }
+  sql += ' ORDER BY r.created_at DESC';
+
+  const rows = db.prepare(sql).all(...params) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    userName: r.user_name || 'Student',
+    userEmail: r.user_email || 'N/A',
+    questionId: r.question_id,
+    questionSnippet: r.question_snippet?.slice(0, 80) || '',
+    reason: r.reason,
+    details: r.details,
+    status: r.status,
+    resolvedAt: r.resolved_at || undefined,
+    resolvedBy: r.resolved_by || undefined,
+    createdAt: r.created_at,
+  }));
+}
+
+export function resolveQuestionReport(id: string, resolvedBy: string): boolean {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE question_reports SET status = 'RESOLVED', resolved_at = ?, resolved_by = ? WHERE id = ?
+  `).run(now, resolvedBy, id);
+  return true;
+}
+
+export function addAuditLog(log: AuditLog): AuditLog {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_email, action, target_type, target_id, details_json, ip_address, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    log.id,
+    log.userId,
+    log.userEmail,
+    log.action,
+    log.targetType,
+    log.targetId || null,
+    log.detailsJson || null,
+    log.ipAddress || null,
+    log.createdAt
+  );
+  return log;
+}
+
+export function getAuditLogs(limit = 50): AuditLog[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?').all(limit) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    userEmail: r.user_email,
+    action: r.action,
+    targetType: r.target_type,
+    targetId: r.target_id || undefined,
+    detailsJson: r.details_json || undefined,
+    ipAddress: r.ip_address || undefined,
+    createdAt: r.created_at,
+  }));
+}
+
+export function getStudyMaterials(onlyPublished = false): StudyMaterial[] {
+  const db = getSqliteDb();
+  let sql = 'SELECT * FROM study_materials';
+  if (onlyPublished) sql += ' WHERE is_published = 1';
+  sql += ' ORDER BY created_at DESC';
+
+  const rows = db.prepare(sql).all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    titleEn: r.title_en,
+    titleHi: r.title_hi,
+    descriptionEn: r.description_en || '',
+    descriptionHi: r.description_hi || '',
+    categoryId: r.category_id,
+    subjectId: r.subject_id || undefined,
+    pdfUrl: r.pdf_url,
+    pagesCount: r.pages_count,
+    fileSizeMb: r.file_size_mb,
+    isPublished: Boolean(r.is_published),
+    createdAt: r.created_at,
+  }));
+}
+
+export function createStudyMaterial(m: StudyMaterial): StudyMaterial {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO study_materials (
+      id, title_en, title_hi, description_en, description_hi,
+      category_id, subject_id, pdf_url, pages_count, file_size_mb,
+      is_published, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    m.id,
+    m.titleEn,
+    m.titleHi,
+    m.descriptionEn || '',
+    m.descriptionHi || '',
+    m.categoryId,
+    m.subjectId || null,
+    m.pdfUrl,
+    m.pagesCount,
+    m.fileSizeMb,
+    m.isPublished ? 1 : 0,
+    m.createdAt
+  );
+  return m;
+}
+
+export function deleteStudyMaterial(id: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM study_materials WHERE id = ?').run(id);
+  return true;
+}
+
+export function getCalendarEvents(): CalendarEvent[] {
+  const db = getSqliteDb();
+  const rows = db.prepare('SELECT * FROM calendar_events ORDER BY date ASC').all() as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    titleEn: r.title_en,
+    titleHi: r.title_hi,
+    descriptionEn: r.description_en || undefined,
+    descriptionHi: r.description_hi || undefined,
+    date: r.date,
+    type: r.type,
+    url: r.url || undefined,
+  }));
+}
+
+export function createCalendarEvent(e: CalendarEvent): CalendarEvent {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO calendar_events (id, title_en, title_hi, description_en, description_hi, date, type, url, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(e.id, e.titleEn, e.titleHi, e.descriptionEn || null, e.descriptionHi || null, e.date, e.type, e.url || null, now);
+  return e;
+}
+
+export function deleteCalendarEvent(id: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id);
+  return true;
+}
+
+export function getStudentPlanner(userId: string) {
+  const db = getSqliteDb();
+  const tasks = (db.prepare('SELECT * FROM student_tasks WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[]).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    title: r.title,
+    dueDate: r.due_date || undefined,
+    priority: r.priority,
+    isCompleted: Boolean(r.is_completed),
+    createdAt: r.created_at,
+  }));
+
+  const stickyNotes = (db.prepare('SELECT * FROM student_sticky_notes WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[]).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    content: r.content,
+    color: r.color,
+    x: r.x,
+    y: r.y,
+    createdAt: r.created_at,
+  }));
+
+  const datedNotes = (db.prepare('SELECT * FROM student_dated_notes WHERE user_id = ? ORDER BY date DESC').all(userId) as any[]).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    date: r.date,
+    content: r.content,
+    createdAt: r.created_at,
+  }));
+
+  const goalRow = db.prepare('SELECT * FROM student_goals WHERE user_id = ?').get(userId) as any;
+  const goal: StudentGoal = goalRow
+    ? {
+        id: goalRow.id,
+        userId: goalRow.user_id,
+        targetExamEn: goalRow.target_exam_en,
+        targetExamHi: goalRow.target_exam_hi,
+        targetScore: goalRow.target_score,
+        targetDate: goalRow.target_date,
+        dailyStudyHours: goalRow.daily_study_hours,
+        notes: goalRow.notes || '',
+        updatedAt: goalRow.updated_at,
+      }
+    : {
+        id: `goal-${userId}`,
+        userId,
+        targetExamEn: 'SSC CGL Tier 1 & 2',
+        targetExamHi: 'एसएससी सीजीएल टियर 1 एवं 2',
+        targetScore: 160,
+        targetDate: '2026-12-15',
+        dailyStudyHours: 6,
+        notes: 'Target 90%+ in Reasoning and Math',
+        updatedAt: new Date().toISOString(),
+      };
+
+  return { tasks, stickyNotes, datedNotes, goal };
+}
+
+export function saveStudentTask(t: StudentTask): StudentTask {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO student_tasks (id, user_id, title, due_date, priority, is_completed, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(t.id, t.userId, t.title, t.dueDate || null, t.priority, t.isCompleted ? 1 : 0, t.createdAt);
+  return t;
+}
+
+export function updateStudentTask(id: string, userId: string, updates: Partial<StudentTask>): boolean {
+  const db = getSqliteDb();
+  const existing = db.prepare('SELECT * FROM student_tasks WHERE id = ? AND user_id = ?').get(id, userId) as any;
+  if (!existing) return false;
+
+  const isCompleted = updates.isCompleted !== undefined ? (updates.isCompleted ? 1 : 0) : existing.is_completed;
+  const title = updates.title || existing.title;
+  const dueDate = updates.dueDate !== undefined ? updates.dueDate : existing.due_date;
+  const priority = updates.priority || existing.priority;
+
+  db.prepare(`
+    UPDATE student_tasks SET is_completed = ?, title = ?, due_date = ?, priority = ? WHERE id = ? AND user_id = ?
+  `).run(isCompleted, title, dueDate, priority, id, userId);
+  return true;
+}
+
+export function deleteStudentTask(id: string, userId: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM student_tasks WHERE id = ? AND user_id = ?').run(id, userId);
+  return true;
+}
+
+export function saveStickyNote(s: StudentStickyNote): StudentStickyNote {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO student_sticky_notes (id, user_id, content, color, x, y, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(s.id, s.userId, s.content, s.color, s.x, s.y, s.createdAt);
+  return s;
+}
+
+export function updateStickyNote(id: string, userId: string, updates: Partial<StudentStickyNote>): boolean {
+  const db = getSqliteDb();
+  const existing = db.prepare('SELECT * FROM student_sticky_notes WHERE id = ? AND user_id = ?').get(id, userId) as any;
+  if (!existing) return false;
+
+  const content = updates.content !== undefined ? updates.content : existing.content;
+  const color = updates.color || existing.color;
+  const x = updates.x !== undefined ? updates.x : existing.x;
+  const y = updates.y !== undefined ? updates.y : existing.y;
+
+  db.prepare(`
+    UPDATE student_sticky_notes SET content = ?, color = ?, x = ?, y = ? WHERE id = ? AND user_id = ?
+  `).run(content, color, x, y, id, userId);
+  return true;
+}
+
+export function deleteStickyNote(id: string, userId: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM student_sticky_notes WHERE id = ? AND user_id = ?').run(id, userId);
+  return true;
+}
+
+export function saveDatedNote(n: StudentDatedNote): StudentDatedNote {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO student_dated_notes (id, user_id, date, content, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(n.id, n.userId, n.date, n.content, n.createdAt);
+  return n;
+}
+
+export function deleteDatedNote(id: string, userId: string): boolean {
+  const db = getSqliteDb();
+  db.prepare('DELETE FROM student_dated_notes WHERE id = ? AND user_id = ?').run(id, userId);
+  return true;
+}
+
+export function saveStudentGoal(g: StudentGoal): StudentGoal {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO student_goals (
+      id, user_id, target_exam_en, target_exam_hi, target_score,
+      target_date, daily_study_hours, notes, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      target_exam_en = excluded.target_exam_en,
+      target_exam_hi = excluded.target_exam_hi,
+      target_score = excluded.target_score,
+      target_date = excluded.target_date,
+      daily_study_hours = excluded.daily_study_hours,
+      notes = excluded.notes,
+      updated_at = excluded.updated_at
+  `).run(
+    g.id,
+    g.userId,
+    g.targetExamEn,
+    g.targetExamHi,
+    g.targetScore,
+    g.targetDate,
+    g.dailyStudyHours,
+    g.notes || '',
+    now
+  );
+  return g;
+}
+
+export function createPasswordReset(record: PasswordResetRecord): PasswordResetRecord {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO password_resets (id, user_id, token, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(record.id, record.userId, record.token, record.expiresAt, record.createdAt);
+  return record;
+}
+
+export function verifyPasswordReset(token: string): PasswordResetRecord | null {
+  const db = getSqliteDb();
+  const row = db.prepare('SELECT * FROM password_resets WHERE token = ? AND used_at IS NULL').get(token) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    token: row.token,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at || undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function markPasswordResetUsed(token: string): boolean {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  db.prepare('UPDATE password_resets SET used_at = ? WHERE token = ?').run(now, token);
+  return true;
+}
+
+function mapUser(r: any): User {
+  return {
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    passwordHash: r.password_hash,
+    role: r.role,
+    isActive: Boolean(r.is_active),
+    isVerified: Boolean(r.is_verified),
+    emailVerificationToken: r.email_verification_token || undefined,
+    createdAt: r.created_at,
+    preferredLanguage: r.preferred_language,
+    stats: {
+      points: r.points,
+      streakDays: r.streak_days,
+      lastLoginDate: r.last_login_date || undefined,
+      testsAttempted: r.tests_attempted,
+      testsCompleted: r.tests_completed,
+      avgScore: r.avg_score,
+      avgAccuracy: r.avg_accuracy,
+    },
+  };
+}
+
+// Backward compatibility helper
+export function getDb() {
+  getSqliteDb();
+  return {
+    users: getAllUsers(),
+    categories: getAllCategories(),
+    subjects: getAllSubjects(),
+    topics: getAllTopics(),
+    questions: getAllQuestions(),
+    exams: getAllExams(),
+    attempts: getAllAttempts(),
+    studyMaterials: getStudyMaterials(),
+    calendarEvents: getCalendarEvents(),
+    tasks: [] as StudentTask[],
+    stickyNotes: [] as StudentStickyNote[],
+    datedNotes: [] as StudentDatedNote[],
+    goals: {} as Record<string, StudentGoal>,
+  };
+}
+
+export function persistDb() {
+  // SQLite persists automatically to disk with WAL mode!
 }

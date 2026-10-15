@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfile } from '../../types';
 import { Users, Search, Shield, CheckCircle2, XCircle, Flame, Target } from 'lucide-react';
+import { LogoIcon } from '../../components/common/Logo';
 
 export const AdminStudentsPage: React.FC = () => {
   const { token, language } = useAuth();
@@ -54,13 +55,16 @@ export const AdminStudentsPage: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'अभ्यर्थी प्रबंधन एवं अभिलेख' : 'Student Database & Access Control'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          Monitor student enrollment, evaluate completion metrics, and control account active/suspended status.
-        </p>
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'अभ्यर्थी प्रबंधन एवं अभिलेख' : 'Student Database & Access Control'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            Monitor student enrollment, evaluate completion metrics, and control account active/suspended status.
+          </p>
+        </div>
       </div>
 
       {/* Search Input */}

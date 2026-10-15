@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 
+import { Logo } from './Logo';
+
 export type ActiveTab =
   // Student tabs
   | 'student-dashboard'
@@ -150,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="flex flex-col h-full bg-[#173f35] text-[#f6f5ee]">
       {/* Brand Header on Mobile Drawer */}
       <div className="p-4 flex items-center justify-between border-b border-[#235447] lg:hidden">
-        <span className="font-extrabold text-lg text-white">MockMaster Menu</span>
+        <Logo variant="light" size="sm" showSubtitle={false} />
         <button
           onClick={onCloseMobile}
           className="p-1 rounded-md text-[#dff4e9] hover:bg-[#235447]"
@@ -214,12 +216,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Footer Info Box */}
-      <div className="p-4 border-t border-[#235447] bg-[#0f2c25]/50">
-        <div className="text-[11px] text-[#b8e6ce] font-semibold">
-          {language === 'hi' ? 'परीक्षा सहायता हेल्पलाइन' : 'Exam Support Desk'}
-        </div>
-        <div className="text-[10px] text-[#52635a] mt-0.5">
-          v2.4 • Bilingual CBT Engine
+      <div className="p-4 border-t border-[#235447] bg-[#0f2c25]/60 flex flex-col gap-2">
+        <Logo variant="light" size="xs" showSubtitle={false} showBadge={false} />
+        <div className="flex items-center justify-between text-[10px] text-[#b8e6ce]">
+          <span>{language === 'hi' ? 'सीबीटी इंजन सक्रिय' : 'CBT Engine Active'}</span>
+          <span className="text-[#c9ed71] font-mono font-bold">v2.4 Pro</span>
         </div>
       </div>
     </div>

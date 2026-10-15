@@ -14,6 +14,7 @@ import {
   X,
   BookOpen,
 } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface ExamReviewPageProps {
   attemptId: string;
@@ -106,11 +107,12 @@ export const ExamReviewPage: React.FC<ExamReviewPageProps> = ({
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
+          <LogoIcon size="sm" />
           <div>
             <h1 className="text-base sm:text-lg font-bold text-[#17241f] font-display">
               {reviewLanguage === 'hi' ? examTitleHi : examTitleEn}
             </h1>
-            <p className="text-xs text-[#52635a]">Detailed Question-by-Question Solutions</p>
+            <p className="text-xs text-[#52635a]">Detailed Question-by-Question Solutions • MockMaster Review</p>
           </div>
         </div>
 

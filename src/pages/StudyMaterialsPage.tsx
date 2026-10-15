@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { StudyMaterial } from '../types';
 import { BookOpen, Download, Eye, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 export const StudyMaterialsPage: React.FC = () => {
   const { language } = useAuth();
@@ -29,15 +30,18 @@ export const StudyMaterialsPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'अखिल भारतीय परीक्षा अध्ययन सामग्री एवं PDF' : 'Curated Study Materials & E-Books'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          {language === 'hi'
-            ? 'शीर्ष शिक्षकों द्वारा संकलित सूत्र पुस्तिकाएं, व्याकरण नियम और उच्च-अंक नोट्स।'
-            : 'Verified formula handbooks, high-yield subject notes, and previous year revision guides.'}
-        </p>
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'अखिल भारतीय परीक्षा अध्ययन सामग्री एवं PDF' : 'Curated Study Materials & E-Books'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            {language === 'hi'
+              ? 'शीर्ष शिक्षकों द्वारा संकलित सूत्र पुस्तिकाएं, व्याकरण नियम और उच्च-अंक नोट्स।'
+              : 'Verified formula handbooks, high-yield subject notes, and previous year revision guides.'}
+          </p>
+        </div>
       </div>
 
       {loading ? (
@@ -99,13 +103,16 @@ export const StudyMaterialsPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
           <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-[#eceae1] overflow-hidden flex flex-col h-[85vh]">
             <div className="bg-[#173f35] px-6 py-4 text-white flex items-center justify-between shrink-0">
-              <div className="min-w-0 pr-4">
-                <span className="text-[10px] text-[#c9ed71] uppercase font-bold tracking-wider">
-                  Secure E-Book Reader
-                </span>
-                <h3 className="text-sm sm:text-base font-bold truncate text-white">
-                  {language === 'hi' ? activeMaterial.titleHi : activeMaterial.titleEn}
-                </h3>
+              <div className="flex items-center gap-3 min-w-0 pr-4">
+                <LogoIcon size="md" />
+                <div className="min-w-0">
+                  <span className="text-[10px] text-[#c9ed71] uppercase font-bold tracking-wider">
+                    MockMaster E-Library Reader
+                  </span>
+                  <h3 className="text-sm sm:text-base font-bold truncate text-white">
+                    {language === 'hi' ? activeMaterial.titleHi : activeMaterial.titleEn}
+                  </h3>
+                </div>
               </div>
               <button
                 onClick={() => setActiveMaterial(null)}

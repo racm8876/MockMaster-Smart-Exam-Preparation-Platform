@@ -13,6 +13,7 @@ import {
   AlertCircle,
   FileText,
 } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 export const StudyPlannerPage: React.FC = () => {
   const { token, language } = useAuth();
@@ -197,15 +198,18 @@ export const StudyPlannerPage: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Title */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'स्मार्ट अध्ययन योजनाकार एवं लक्ष्य' : 'Aspirant Study Planner & Mission Board'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          {language === 'hi'
-            ? 'दैनिक अध्ययन कार्य, लक्ष्य और महत्वपूर्ण ट्रिक्स के लिए आपका व्यक्तिगत बोर्ड।'
-            : 'Track daily revision checklists, target scores, and sticky strategy memos.'}
-        </p>
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'स्मार्ट अध्ययन योजनाकार एवं लक्ष्य' : 'Aspirant Study Planner & Mission Board'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            {language === 'hi'
+              ? 'दैनिक अध्ययन कार्य, लक्ष्य और महत्वपूर्ण ट्रिक्स के लिए आपका व्यक्तिगत बोर्ड।'
+              : 'Track daily revision checklists, target scores, and sticky strategy memos.'}
+          </p>
+        </div>
       </div>
 
       {/* Goal Tracker Card */}

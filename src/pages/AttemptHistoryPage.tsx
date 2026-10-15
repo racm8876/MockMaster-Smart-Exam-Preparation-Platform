@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { History, Award, BookOpen, Clock, ArrowRight } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface AttemptHistoryPageProps {
   onGoToResult: (attemptId: string) => void;
@@ -36,15 +37,18 @@ export const AttemptHistoryPage: React.FC<AttemptHistoryPageProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'परीक्षा इतिहास एवं पिछले प्रयास' : 'Test Attempt History & Prior Records'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          {language === 'hi'
-            ? 'आपके द्वारा सबमिट किए गए सभी पिछले मॉक टेस्ट्स का आधिकारिक रिकॉर्ड।'
-            : 'Immutable log of your completed examination attempts with direct review access.'}
-        </p>
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'परीक्षा इतिहास एवं पिछले प्रयास' : 'Test Attempt History & Prior Records'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            {language === 'hi'
+              ? 'आपके द्वारा सबमिट किए गए सभी पिछले मॉक टेस्ट्स का आधिकारिक रिकॉर्ड।'
+              : 'Immutable log of your completed examination attempts with direct review access.'}
+          </p>
+        </div>
       </div>
 
       {loading ? (

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { StudyMaterial, CalendarEvent } from '../../types';
 import { BookOpen, Calendar, Plus, Trash2, CheckCircle2, X } from 'lucide-react';
+import { LogoIcon } from '../../components/common/Logo';
 
 export const AdminMaterialsAndCalendar: React.FC = () => {
   const { token, language } = useAuth();
@@ -123,6 +124,19 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
+      {/* Page Header */}
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'संसाधन एवं परीक्षा कैलेंडर नियंत्रण' : 'Learning Resources & Examination Calendar'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            Manage published PDF guides, official exam dates, admit card alerts, and calendar notifications.
+          </p>
+        </div>
+      </div>
+
       {/* 1. Study Materials Section */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

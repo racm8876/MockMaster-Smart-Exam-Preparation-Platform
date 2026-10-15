@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Sparkles,
 } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface StudentDashboardProps {
   onStartExam: (examId: string) => void;
@@ -87,8 +88,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Welcome Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#173f35] to-[#235447] text-white p-6 sm:p-8 shadow-sm">
-        <div className="relative z-10 max-w-3xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#173f35] to-[#235447] text-white p-6 sm:p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="relative z-10 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#c9ed71] text-[#173f35] text-xs font-bold mb-3">
             <Sparkles className="w-3.5 h-3.5" />
             <span>{language === 'hi' ? 'दैनिक अभ्यास मोड सक्रिय' : 'Daily Practice Streak Active'}</span>
@@ -119,6 +120,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {language === 'hi' ? 'स्टडी प्लानर खोलें' : 'Open Study Planner'}
             </button>
           </div>
+        </div>
+
+        {/* Official Brand Seal Badge */}
+        <div className="hidden md:flex flex-col items-center justify-center p-4 rounded-2xl bg-white/5 border border-white/15 backdrop-blur-xs shrink-0 z-10 text-center">
+          <LogoIcon size="xl" />
+          <span className="text-[10px] font-black uppercase tracking-wider text-[#c9ed71] mt-2">
+            Verified CBT Portal
+          </span>
+          <span className="text-[9px] text-[#b8e6ce]">
+            All-India Mock 2026
+          </span>
         </div>
 
         {/* Decorative background shape */}

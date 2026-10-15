@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Trophy, Medal, Flame, Target, Award, Sparkles } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 export const LeaderboardPage: React.FC = () => {
   const { user, language } = useAuth();
@@ -31,9 +32,10 @@ export const LeaderboardPage: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Page Header */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dff4e9] text-[#173f35] text-xs font-bold">
-          <Trophy className="w-3.5 h-3.5" />
+      <div className="text-center space-y-2.5 flex flex-col items-center">
+        <LogoIcon size="lg" />
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dff4e9] text-[#173f35] text-xs font-bold border border-[#b8e6ce]">
+          <Trophy className="w-3.5 h-3.5 text-[#173f35]" />
           <span>{language === 'hi' ? 'अखिल भारतीय लाइव रैंक तालिका' : 'All-India National Merit Standings'}</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">

@@ -14,6 +14,7 @@ import {
   X,
   Eye,
 } from 'lucide-react';
+import { LogoIcon } from '../../components/common/Logo';
 
 export const AdminQuestionBank: React.FC = () => {
   const { token, language } = useAuth();
@@ -169,14 +170,17 @@ export const AdminQuestionBank: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-            {language === 'hi' ? 'द्विभाषी प्रश्न बैंक एवं विषय वर्गीकरण' : 'Bilingual Question Bank & Taxonomy'}
-          </h1>
-          <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-            Curate mathematical equations, diagrams, and bilingual explanations for CBT exams.
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <LogoIcon size="md" />
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+              {language === 'hi' ? 'द्विभाषी प्रश्न बैंक एवं विषय वर्गीकरण' : 'Bilingual Question Bank & Taxonomy'}
+            </h1>
+            <p className="mt-0.5 text-xs text-[#52635a]">
+              Curate mathematical equations, diagrams, and bilingual explanations for CBT exams.
+            </p>
+          </div>
         </div>
 
         <button

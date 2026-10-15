@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Target, TrendingUp, AlertCircle, CheckCircle2, Award, Zap } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 export const PerformancePage: React.FC = () => {
   const { token, language } = useAuth();
@@ -56,15 +57,18 @@ export const PerformancePage: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Title */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-          {language === 'hi' ? 'परीक्षा प्रदर्शन एवं बुद्धिमत्ता विश्लेषण' : 'Performance Insights & Mastery Analytics'}
-        </h1>
-        <p className="mt-1 text-xs sm:text-sm text-[#52635a]">
-          {language === 'hi'
-            ? 'आपके द्वारा दिए गए सभी मॉक टेस्ट्स का विषयवार एवं समयवार विश्लेषण।'
-            : 'Diagnostic intelligence derived from your authenticated attempts to pinpoint high-scoring strengths and weak areas.'}
-        </p>
+      <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
+        <LogoIcon size="md" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
+            {language === 'hi' ? 'परीक्षा प्रदर्शन एवं बुद्धिमत्ता विश्लेषण' : 'Performance Insights & Mastery Analytics'}
+          </h1>
+          <p className="mt-0.5 text-xs text-[#52635a]">
+            {language === 'hi'
+              ? 'आपके द्वारा दिए गए सभी मॉक टेस्ट्स का विषयवार एवं समयवार विश्लेषण।'
+              : 'Diagnostic intelligence derived from your authenticated attempts to pinpoint high-scoring strengths and weak areas.'}
+          </p>
+        </div>
       </div>
 
       {/* Overview Cards */}

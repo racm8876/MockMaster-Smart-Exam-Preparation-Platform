@@ -22,6 +22,7 @@ import { AdminExamsPage } from './pages/admin/AdminExamsPage';
 import { AdminPaperImport } from './pages/admin/AdminPaperImport';
 import { AdminStudentsPage } from './pages/admin/AdminStudentsPage';
 import { AdminMaterialsAndCalendar } from './pages/admin/AdminMaterialsAndCalendar';
+import { Logo } from './components/common/Logo';
 
 function MainAppContent() {
   const { user, isLoading } = useAuth();
@@ -42,9 +43,12 @@ function MainAppContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#f6f5ee] flex flex-col items-center justify-center">
-        <div className="w-10 h-10 border-4 border-[#173f35] border-t-[#c9ed71] rounded-full animate-spin mb-3" />
-        <p className="text-xs font-bold text-[#173f35]">Loading MockMaster...</p>
+      <div className="min-h-screen bg-[#f6f5ee] flex flex-col items-center justify-center p-4">
+        <Logo size="lg" className="animate-pulse mb-4" />
+        <div className="w-12 h-1 rounded-full bg-[#eceae1] overflow-hidden">
+          <div className="w-1/2 h-full bg-[#173f35] rounded-full animate-indeterminate" />
+        </div>
+        <p className="text-[11px] font-bold text-[#52635a] mt-3">Connecting to MockMaster CBT Engine...</p>
       </div>
     );
   }
@@ -178,6 +182,22 @@ function MainAppContent() {
           )}
         </main>
       </div>
+
+      {/* Persistent MockMaster Brand Footer */}
+      <footer className="border-t border-[#eceae1] bg-white py-4 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#52635a]">
+          <Logo size="xs" showSubtitle={true} />
+          <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-[#52635a]">
+            <span>All-India Competitive Exam CBT Simulator</span>
+            <span>•</span>
+            <span>Server-Authoritative Timing & Negative Marking</span>
+            <span>•</span>
+            <span>Bilingual (English & हिन्दी)</span>
+            <span>•</span>
+            <span>© 2026 MockMaster</span>
+          </div>
+        </div>
+      </footer>
 
       {/* Instructions & Declaration Modal */}
       <ExamInstructionsModal

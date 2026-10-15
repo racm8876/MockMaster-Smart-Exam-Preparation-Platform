@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { X, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { LogoIcon } from '../components/common/Logo';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -81,17 +82,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#eceae1] overflow-hidden">
         {/* Header Bar */}
         <div className="bg-[#173f35] px-6 py-5 text-white flex items-center justify-between">
-          <div>
-            <h3 className="font-extrabold text-lg tracking-tight font-display text-white">
-              {tab === 'login' && (language === 'hi' ? 'लॉग इन करें' : 'Aspirant Log In')}
-              {tab === 'register' && (language === 'hi' ? 'नया छात्र खाता बनाएं' : 'Create Student Account')}
-              {tab === 'forgot' && (language === 'hi' ? 'पासवर्ड रीसेट करें' : 'Reset Password')}
-            </h3>
-            <p className="text-xs text-[#b8e6ce] mt-0.5">
-              {language === 'hi'
-                ? 'अखिल भारतीय परीक्षा तैयारी पोर्टल'
-                : 'Access CBT mock tests, analysis & study planner'}
-            </p>
+          <div className="flex items-center gap-3">
+            <LogoIcon size="md" />
+            <div>
+              <h3 className="font-extrabold text-lg tracking-tight font-display text-white">
+                {tab === 'login' && (language === 'hi' ? 'लॉग इन करें' : 'Aspirant Log In')}
+                {tab === 'register' && (language === 'hi' ? 'नया छात्र खाता बनाएं' : 'Create Student Account')}
+                {tab === 'forgot' && (language === 'hi' ? 'पासवर्ड रीसेट करें' : 'Reset Password')}
+              </h3>
+              <p className="text-xs text-[#b8e6ce] mt-0.5">
+                {language === 'hi'
+                  ? 'अखिल भारतीय परीक्षा तैयारी पोर्टल'
+                  : 'Access CBT mock tests, analysis & study planner'}
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}

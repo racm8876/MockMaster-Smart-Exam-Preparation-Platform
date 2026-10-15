@@ -12,6 +12,7 @@ import {
   BarChart3,
   FileSpreadsheet,
 } from 'lucide-react';
+import { LogoIcon } from '../../components/common/Logo';
 
 interface AdminDashboardProps {
   onNavigateTab: (tab: any) => void;
@@ -45,16 +46,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateTab })
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Admin Welcome Banner */}
       <div className="bg-gradient-to-r from-[#173f35] to-[#0f2c25] text-white p-6 rounded-2xl border border-[#235447] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="space-y-1 text-center sm:text-left">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#c9ed71] bg-white/10 px-2.5 py-0.5 rounded-full">
-            Chief Administrator Control Deck
-          </span>
-          <h1 className="text-xl sm:text-2xl font-black font-display text-white">
-            {language === 'hi' ? 'परीक्षा संचालन एवं विश्लेषण केंद्र' : 'MockMaster Exam Operation Center'}
-          </h1>
-          <p className="text-xs text-[#dff4e9]">
-            Manage bilingual question banks, configure exams, verify import drafts, and monitor student metrics.
-          </p>
+        <div className="flex items-center gap-4">
+          <LogoIcon size="lg" />
+          <div className="space-y-1 text-center sm:text-left">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#c9ed71] bg-white/10 px-2.5 py-0.5 rounded-full">
+              Chief Administrator Control Deck
+            </span>
+            <h1 className="text-xl sm:text-2xl font-black font-display text-white">
+              {language === 'hi' ? 'परीक्षा संचालन एवं विश्लेषण केंद्र' : 'MockMaster Exam Operation Center'}
+            </h1>
+            <p className="text-xs text-[#dff4e9]">
+              Manage bilingual question banks, configure exams, verify import drafts, and monitor student metrics.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
