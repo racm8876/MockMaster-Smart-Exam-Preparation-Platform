@@ -6,9 +6,6 @@ import {
   Award,
   LogOut,
   User,
-  ShieldCheck,
-  GraduationCap,
-  Sparkles,
   Menu,
 } from 'lucide-react';
 
@@ -21,7 +18,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModal, onHomeClick }) => {
-  const { user, language, setLanguage, logout, switchRoleDemo, claimDailyBonus } = useAuth();
+  const { user, language, setLanguage, logout, claimDailyBonus } = useAuth();
 
   const handleLanguageToggle = () => {
     setLanguage(language === 'en' ? 'hi' : 'en');
@@ -63,34 +60,6 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModa
             <Globe className="w-3.5 h-3.5 text-[#173f35]" />
             <span>{language === 'en' ? 'हिन्दी' : 'English'}</span>
           </button>
-
-          {/* Quick Demo Role Switcher */}
-          {user && (
-            <div className="hidden md:flex items-center bg-[#f6f5ee] p-1 rounded-lg border border-[#eceae1] text-xs font-semibold">
-              <button
-                onClick={() => switchRoleDemo('STUDENT')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-                  user.role === 'STUDENT'
-                    ? 'bg-[#173f35] text-[#c9ed71] shadow-xs'
-                    : 'text-[#52635a] hover:text-[#173f35]'
-                }`}
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Student</span>
-              </button>
-              <button
-                onClick={() => switchRoleDemo('ADMIN')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-                  user.role === 'ADMIN'
-                    ? 'bg-[#ef765f] text-white shadow-xs'
-                    : 'text-[#52635a] hover:text-[#173f35]'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Admin</span>
-              </button>
-            </div>
-          )}
 
           {/* Streak & Points Badge for Student */}
           {user && user.role === 'STUDENT' && (

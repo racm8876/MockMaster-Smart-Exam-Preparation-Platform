@@ -1,9 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { getDb } from './db';
+import { randomBytes } from 'node:crypto';
+import { findUserById } from './db';
 import { User, Role } from './types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mockmaster-super-secret-key-2026-prod';
+// A hard-coded signing key makes every deployed account forgeable. Development
+// gets an ephemeral key; production must be configured explicitly.
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : randomBytes(48).toString('hex'));
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET must be configured when NODE_ENV=production.');
+}
 
 export interface AuthPayload {
   userId: string;
@@ -36,7 +43,8 @@ export function extractToken(req: Request): string | null {
   // Check Authorization header
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7).trim();
+    const token = authHeader.substring(7).trim();
+    if (token && token !== 'session' && token !== 'null' && token !== 'undefined') return token;
   }
 
   // Check Cookie header
@@ -63,8 +71,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     return next();
   }
 
-  const db = getDb();
-  const user = db.users.find((u) => u.id === payload.userId && u.isActive);
+  const user = findUserById(payload.userId);
   if (user) {
     req.user = user;
   }

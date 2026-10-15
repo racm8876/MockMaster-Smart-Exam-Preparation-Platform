@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { X, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { LogoIcon } from '../components/common/Logo';
 
 interface AuthModalProps {
@@ -63,18 +63,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleDemoFill = (role: 'student' | 'admin') => {
-    if (role === 'student') {
-      setEmail('student@mockmaster.com');
-      setPassword('Student@12345');
-    } else {
-      setEmail('admin@mockmaster.com');
-      setPassword('Admin@12345');
-    }
-    setTab('login');
-    setError(null);
   };
 
   return (
@@ -256,25 +244,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
           </button>
 
-          {/* Quick Demo Credentials Autofill */}
-          <div className="pt-3 border-t border-[#eceae1]">
+          <div className="hidden" aria-hidden="true">
             <div className="text-[11px] font-bold text-[#52635a] uppercase tracking-wider text-center mb-2">
               ⚡ Quick One-Click Demo Logins
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => handleDemoFill('student')}
+                disabled
                 className="py-1.5 px-2.5 rounded-lg border border-[#cfcbbe] bg-[#f6f5ee] hover:bg-[#dff4e9] text-[11px] font-semibold text-[#173f35] text-center transition-colors"
               >
                 Student (Aarav)
               </button>
               <button
                 type="button"
-                onClick={() => handleDemoFill('admin')}
+                disabled
                 className="py-1.5 px-2.5 rounded-lg border border-[#cfcbbe] bg-[#f6f5ee] hover:bg-[#ffece8] text-[11px] font-semibold text-[#ef765f] text-center transition-colors flex items-center justify-center gap-1"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
                 <span>Admin Console</span>
               </button>
             </div>

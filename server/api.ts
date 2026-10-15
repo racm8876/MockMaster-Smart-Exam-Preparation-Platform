@@ -2,7 +2,24 @@ import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import {
   getDb,
-  persistDb,
+  findUserByEmail,
+  createUser,
+  updateUser,
+  getExamById,
+  getAttemptsByUser,
+  createAttempt,
+  saveAttemptAnswer,
+  updateAttemptSubmission,
+  createQuestion,
+  deleteQuestion,
+  createExam,
+  updateExam,
+  createStudyMaterial,
+  deleteStudyMaterial,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  createCategory,
+  deleteCategory,
   getStudentPlanner,
   saveStudentTask,
   updateStudentTask,
@@ -35,6 +52,23 @@ import {
   StudentGoal,
 } from './types';
 
+const SESSION_COOKIE = 'mockmaster_token';
+const sessionCookie = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict' as const,
+  path: '/',
+  maxAge: 7 * 86400 * 1000,
+};
+
+function validPassword(password: unknown): password is string {
+  return typeof password === 'string'
+    && password.length >= 10
+    && /[a-z]/.test(password)
+    && /[A-Z]/.test(password)
+    && /\d/.test(password);
+}
+
 const router = Router();
 
 // ==========================================
@@ -49,8 +83,8 @@ router.post('/auth/register', (req, res) => {
     return res.status(400).json({ success: false, error: 'Name, email, and password are required.' });
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
+  if (!validPassword(password)) {
+    return res.status(400).json({ success: false, error: 'Use at least 10 characters with uppercase, lowercase, and a number.' });
   }
 
   if (confirmPassword && password !== confirmPassword) {
@@ -58,14 +92,12 @@ router.post('/auth/register', (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
-  const db = getDb();
-
-  const existing = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  const existing = findUserByEmail(normalizedEmail);
   if (existing) {
     return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
   }
 
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const passwordHash = bcrypt.hashSync(password, 12);
   const newUser: User = {
     id: `user-stu-${Date.now()}`,
     name: String(name).trim(),
@@ -86,21 +118,14 @@ router.post('/auth/register', (req, res) => {
     },
   };
 
-  db.users.push(newUser);
-  persistDb();
+  createUser(newUser);
 
   const token = signToken(newUser);
-  res.cookie('mockmaster_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 86400 * 1000,
-  });
+  res.cookie(SESSION_COOKIE, token, sessionCookie);
 
   const { passwordHash: _, ...safeUser } = newUser;
   return res.status(201).json({
     success: true,
-    token,
     user: safeUser,
   });
 });
@@ -114,9 +139,7 @@ router.post('/auth/login', (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
-  const db = getDb();
-
-  const user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  const user = findUserByEmail(normalizedEmail);
   if (!user) {
     return res.status(401).json({ success: false, error: 'Invalid email or password.' });
   }
@@ -141,28 +164,22 @@ router.post('/auth/login', (req, res) => {
     }
     user.stats.points += 10; // Daily checkin bonus
     user.stats.lastLoginDate = todayStr;
-    persistDb();
+    updateUser(user);
   }
 
   const token = signToken(user);
-  res.cookie('mockmaster_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 86400 * 1000,
-  });
+  res.cookie(SESSION_COOKIE, token, sessionCookie);
 
   const { passwordHash: _, ...safeUser } = user;
   return res.json({
     success: true,
-    token,
     user: safeUser,
   });
 });
 
 // Logout
 router.post('/auth/logout', (_req, res) => {
-  res.clearCookie('mockmaster_token');
+  res.clearCookie(SESSION_COOKIE, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
   return res.json({ success: true, message: 'Logged out successfully.' });
 });
 
@@ -177,46 +194,20 @@ router.put('/auth/preferences', requireAuth, (req: AuthenticatedRequest, res: Re
   const { preferredLanguage } = req.body;
   if (preferredLanguage === 'en' || preferredLanguage === 'hi') {
     req.user!.preferredLanguage = preferredLanguage;
-    const db = getDb();
-    const userIndex = db.users.findIndex((u) => u.id === req.user!.id);
-    if (userIndex !== -1) {
-      db.users[userIndex].preferredLanguage = preferredLanguage;
-      persistDb();
-    }
+    updateUser(req.user!);
     return res.json({ success: true, preferredLanguage });
   }
   return res.status(400).json({ success: false, error: 'Language must be "en" or "hi".' });
 });
 
-// Demo switch role for quick preview/testing
-router.post('/auth/switch-demo-role', (req, res) => {
-  const { role } = req.body;
-  const db = getDb();
-  const targetUser = db.users.find((u) => u.role === (role === 'ADMIN' ? 'ADMIN' : 'STUDENT'));
-  if (!targetUser) {
-    return res.status(404).json({ success: false, error: 'Demo user not found.' });
-  }
-  const token = signToken(targetUser);
-  res.cookie('mockmaster_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 86400 * 1000,
-  });
-  const { passwordHash: _, ...safeUser } = targetUser;
-  return res.json({ success: true, token, user: safeUser });
-});
-
-// Password reset simulation
+// Password reset requests intentionally return the same response whether or not
+// an account exists, preventing account enumeration. Mail delivery can be wired
+// to a provider without exposing reset tokens to the browser.
 router.post('/auth/forgot-password', (req, res) => {
-  const { email } = req.body;
-  const db = getDb();
-  const user = db.users.find((u) => u.email.toLowerCase() === String(email).trim().toLowerCase());
+  void req.body.email;
   return res.json({
     success: true,
-    message: user
-      ? `A password reset link with a 60-minute token has been dispatched to ${email}.`
-      : 'If that email address exists in our system, a reset link has been dispatched.',
+    message: 'If that email address exists, password reset instructions will be sent shortly.',
   });
 });
 
@@ -319,7 +310,7 @@ router.get('/exams/:id', (req, res) => {
 router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const db = getDb();
   const examId = req.params.id;
-  const exam = db.exams.find((e) => e.id === examId);
+  const exam = getExamById(examId);
 
   if (!exam || !exam.isPublished) {
     return res.status(404).json({ success: false, error: 'Exam not found or not available.' });
@@ -328,7 +319,7 @@ router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Re
   const userId = req.user!.id;
 
   // Check existing attempts
-  const userAttempts = db.attempts.filter((a) => a.examId === examId && a.userId === userId);
+  const userAttempts = getAttemptsByUser(userId).filter((a) => a.examId === examId);
   const inProgressAttempt = userAttempts.find((a) => a.status === 'IN_PROGRESS');
 
   // Resume active attempt if allowed
@@ -340,7 +331,7 @@ router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Re
       // Auto-submit expired attempt
       inProgressAttempt.status = 'EXPIRED';
       scoreAttempt(inProgressAttempt, exam, db);
-      persistDb();
+      updateAttemptSubmission(inProgressAttempt);
     } else {
       // Safe exam payload omitting answer keys!
       const sanitizedExamData = buildSanitizedExamPayload(exam, db);
@@ -401,9 +392,9 @@ router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Re
     currentQuestionId: firstQuestionId,
   };
 
-  db.attempts.push(newAttempt);
+  createAttempt(newAttempt);
   req.user!.stats.testsAttempted += 1;
-  persistDb();
+  updateUser(req.user!);
 
   const sanitizedExamData = buildSanitizedExamPayload(exam, db);
 
@@ -444,7 +435,7 @@ router.post('/attempts/:id/save', requireAuth, (req: AuthenticatedRequest, res: 
     if (exam) {
       scoreAttempt(attempt, exam, db);
     }
-    persistDb();
+    updateAttemptSubmission(attempt);
     return res.status(400).json({
       success: false,
       error: 'Exam duration has expired. Attempt has been automatically submitted.',
@@ -480,7 +471,10 @@ router.post('/attempts/:id/save', requireAuth, (req: AuthenticatedRequest, res: 
     attempt.currentQuestionId = currentQuestionId;
   }
 
-  persistDb();
+  if (questionId && attempt.answers[questionId]) {
+    saveAttemptAnswer(attempt.id, attempt.answers[questionId]);
+  }
+  updateAttemptSubmission(attempt);
 
   return res.json({
     success: true,
@@ -527,7 +521,8 @@ router.post('/attempts/:id/submit', requireAuth, (req: AuthenticatedRequest, res
   user.stats.avgScore = Math.round((totalScore / userAttempts.length) * 10) / 10;
   user.stats.avgAccuracy = Math.round((totalAcc / userAttempts.length) * 10) / 10;
 
-  persistDb();
+  updateAttemptSubmission(attempt);
+  updateUser(user);
 
   return res.json({
     success: true,
@@ -912,7 +907,6 @@ router.get('/calendar/events', requireAuth, (req: AuthenticatedRequest, res: Res
 
 // Daily Check-in Claim
 router.post('/rewards/daily-checkin', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const db = getDb();
   const user = req.user!;
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -930,7 +924,7 @@ router.post('/rewards/daily-checkin', requireAuth, (req: AuthenticatedRequest, r
   user.stats.lastLoginDate = todayStr;
   user.stats.streakDays = (user.stats.streakDays || 0) + 1;
   user.stats.points = (user.stats.points || 0) + 10;
-  persistDb();
+  updateUser(user);
 
   return res.json({
     success: true,
@@ -1141,7 +1135,7 @@ router.put('/admin/users/:id/toggle-status', requireAdmin, (req, res) => {
   if (user.role === 'ADMIN') return res.status(400).json({ success: false, error: 'Admin account cannot be deactivated.' });
 
   user.isActive = !user.isActive;
-  persistDb();
+  updateUser(user);
   return res.json({ success: true, isActive: user.isActive });
 });
 
@@ -1160,7 +1154,6 @@ router.post('/admin/categories', requireAdmin, (req, res) => {
   const { nameEn, nameHi, descriptionEn, descriptionHi } = req.body;
   if (!nameEn) return res.status(400).json({ success: false, error: 'English category name is required.' });
 
-  const db = getDb();
   const newCat = {
     id: `cat-${Date.now()}`,
     nameEn: String(nameEn).trim(),
@@ -1170,8 +1163,7 @@ router.post('/admin/categories', requireAdmin, (req, res) => {
     descriptionHi,
   };
 
-  db.categories.push(newCat);
-  persistDb();
+  createCategory(newCat);
   return res.status(201).json({ success: true, category: newCat });
 });
 
@@ -1181,8 +1173,9 @@ router.delete('/admin/categories/:id', requireAdmin, (req, res) => {
   if (isUsed) {
     return res.status(400).json({ success: false, error: 'Cannot delete category in use by active exams.' });
   }
-  db.categories = db.categories.filter((c) => c.id !== req.params.id);
-  persistDb();
+  if (!deleteCategory(req.params.id)) {
+    return res.status(404).json({ success: false, error: 'Category not found.' });
+  }
   return res.json({ success: true });
 });
 
@@ -1250,8 +1243,7 @@ router.post('/admin/questions', requireAdmin, (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  db.questions.push(newQ);
-  persistDb();
+  createQuestion(newQ);
   return res.status(201).json({ success: true, question: newQ });
 });
 
@@ -1263,8 +1255,9 @@ router.delete('/admin/questions/:id', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, error: 'Question is assigned to an exam. Remove it from the exam before deleting.' });
   }
 
-  db.questions = db.questions.filter((q) => q.id !== req.params.id);
-  persistDb();
+  if (!deleteQuestion(req.params.id)) {
+    return res.status(404).json({ success: false, error: 'Question not found.' });
+  }
   return res.json({ success: true });
 });
 
@@ -1319,8 +1312,7 @@ router.post('/admin/exams', requireAdmin, (req, res) => {
     updatedAt: new Date().toISOString(),
   };
 
-  db.exams.push(newExam);
-  persistDb();
+  createExam(newExam);
   return res.status(201).json({ success: true, exam: newExam });
 });
 
@@ -1356,7 +1348,7 @@ router.put('/admin/exams/:id', requireAdmin, (req, res) => {
   if (settings) exam.settings = settings;
   exam.updatedAt = new Date().toISOString();
 
-  persistDb();
+  updateExam(exam);
   return res.json({ success: true, exam });
 });
 
@@ -1374,9 +1366,12 @@ router.post('/admin/exams/:id/duplicate', requireAdmin, (req, res) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  duplicateExam.sections = duplicateExam.sections.map((section, index) => ({
+    ...section,
+    id: `sec-${duplicateExam.id}-${index + 1}`,
+  }));
 
-  db.exams.push(duplicateExam);
-  persistDb();
+  createExam(duplicateExam);
   return res.status(201).json({ success: true, exam: duplicateExam });
 });
 
@@ -1397,7 +1392,7 @@ router.post('/admin/exams/:id/publish', requireAdmin, (req, res) => {
 
   exam.isPublished = true;
   exam.updatedAt = new Date().toISOString();
-  persistDb();
+  updateExam(exam);
   return res.json({ success: true, isPublished: true });
 });
 
@@ -1408,7 +1403,7 @@ router.post('/admin/exams/:id/unpublish', requireAdmin, (req, res) => {
 
   exam.isPublished = false;
   exam.updatedAt = new Date().toISOString();
-  persistDb();
+  updateExam(exam);
   return res.json({ success: true, isPublished: false });
 });
 
@@ -1570,7 +1565,7 @@ router.post('/admin/imports/commit', requireAdmin, (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    db.questions.push(newQuestion);
+    createQuestion(newQuestion);
     createdQuestionIds.push(qId);
   });
 
@@ -1595,10 +1590,9 @@ router.post('/admin/imports/commit', requireAdmin, (req, res) => {
         }
       }
       exam.updatedAt = new Date().toISOString();
+      updateExam(exam);
     }
   }
-
-  persistDb();
 
   return res.json({
     success: true,
@@ -1612,7 +1606,6 @@ router.post('/admin/materials', requireAdmin, (req, res) => {
   const { titleEn, titleHi, descriptionEn, descriptionHi, categoryId, pdfUrl, pagesCount, fileSizeMb } = req.body;
   if (!titleEn) return res.status(400).json({ success: false, error: 'Title is required.' });
 
-  const db = getDb();
   const newMat = {
     id: `mat-${Date.now()}`,
     titleEn: String(titleEn).trim(),
@@ -1627,15 +1620,14 @@ router.post('/admin/materials', requireAdmin, (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  db.studyMaterials.push(newMat);
-  persistDb();
+  createStudyMaterial(newMat);
   return res.status(201).json({ success: true, material: newMat });
 });
 
 router.delete('/admin/materials/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.studyMaterials = db.studyMaterials.filter((m) => m.id !== req.params.id);
-  persistDb();
+  if (!deleteStudyMaterial(req.params.id)) {
+    return res.status(404).json({ success: false, error: 'Material not found.' });
+  }
   return res.json({ success: true });
 });
 
@@ -1644,7 +1636,6 @@ router.post('/admin/events', requireAdmin, (req, res) => {
   const { titleEn, titleHi, descriptionEn, descriptionHi, date, type } = req.body;
   if (!titleEn || !date) return res.status(400).json({ success: false, error: 'Title and date are required.' });
 
-  const db = getDb();
   const newEvt = {
     id: `evt-${Date.now()}`,
     titleEn: String(titleEn).trim(),
@@ -1655,15 +1646,14 @@ router.post('/admin/events', requireAdmin, (req, res) => {
     type: type || 'EXAM',
   };
 
-  db.calendarEvents.push(newEvt);
-  persistDb();
+  createCalendarEvent(newEvt);
   return res.status(201).json({ success: true, event: newEvt });
 });
 
 router.delete('/admin/events/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.calendarEvents = db.calendarEvents.filter((e) => e.id !== req.params.id);
-  persistDb();
+  if (!deleteCalendarEvent(req.params.id)) {
+    return res.status(404).json({ success: false, error: 'Event not found.' });
+  }
   return res.json({ success: true });
 });
 

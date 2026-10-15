@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import {
@@ -194,6 +195,7 @@ function initTables(db: DatabaseSync) {
       accuracy_percentage REAL,
       time_spent_seconds INTEGER,
       section_scores_json TEXT,
+      current_question_id TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -336,16 +338,25 @@ function initTables(db: DatabaseSync) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // Lightweight migration for databases created by earlier releases.
+  try {
+    db.exec('ALTER TABLE attempts ADD COLUMN current_question_id TEXT');
+  } catch {
+    // The column already exists.
+  }
 }
 
 function seedIfEmpty(db: DatabaseSync) {
-  const rowCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
+  const rowCount = db.prepare('SELECT COUNT(*) as cnt FROM categories').get() as { cnt: number };
   if (rowCount.cnt > 0) return;
 
   console.log('Seeding initial production SQLite schema with verified bilingual exam data...');
 
-  const adminHash = bcrypt.hashSync('Admin@12345', 10);
-  const studentHash = bcrypt.hashSync('Student@12345', 10);
+  const seedAdminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const seedStudentEmail = process.env.SEED_STUDENT_EMAIL?.trim().toLowerCase() || 'seed-student@local.invalid';
+  const seedStudentPassword = process.env.SEED_STUDENT_PASSWORD || randomBytes(32).toString('hex');
   const now = new Date().toISOString();
   const today = now.split('T')[0];
 
@@ -359,11 +370,12 @@ function seedIfEmpty(db: DatabaseSync) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  if (seedAdminEmail && seedAdminPassword) {
   insertUser.run(
     'user-admin-01',
     'Chief Administrator',
-    'admin@mockmaster.com',
-    adminHash,
+    seedAdminEmail,
+    bcrypt.hashSync(seedAdminPassword, 12),
     'ADMIN',
     1,
     1,
@@ -378,12 +390,13 @@ function seedIfEmpty(db: DatabaseSync) {
     now,
     now
   );
+  }
 
   insertUser.run(
     'user-student-01',
     'Aarav Sharma',
-    'student@mockmaster.com',
-    studentHash,
+    seedStudentEmail,
+    bcrypt.hashSync(seedStudentPassword, 12),
     'STUDENT',
     1,
     1,
@@ -395,26 +408,6 @@ function seedIfEmpty(db: DatabaseSync) {
     5,
     33.5,
     85.4,
-    now,
-    now
-  );
-
-  insertUser.run(
-    'user-student-02',
-    'Priya Verma',
-    'priya@mockmaster.com',
-    studentHash,
-    'STUDENT',
-    1,
-    1,
-    'hi',
-    310,
-    12,
-    today,
-    9,
-    8,
-    35.8,
-    89.1,
     now,
     now
   );
@@ -1237,6 +1230,23 @@ export function getAllCategories(): Category[] {
   }));
 }
 
+export function createCategory(category: Category): Category {
+  const db = getSqliteDb();
+  db.prepare(`
+    INSERT INTO categories (id, name_en, name_hi, slug, description_en, description_hi, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    category.id, category.nameEn, category.nameHi, category.slug,
+    category.descriptionEn || null, category.descriptionHi || null, new Date().toISOString()
+  );
+  return category;
+}
+
+export function deleteCategory(id: string): boolean {
+  const db = getSqliteDb();
+  return db.prepare('DELETE FROM categories WHERE id = ?').run(id).changes > 0;
+}
+
 export function getAllSubjects(): Subject[] {
   const db = getSqliteDb();
   const rows = db.prepare('SELECT * FROM subjects ORDER BY name_en ASC').all() as any[];
@@ -1522,7 +1532,7 @@ export function updateExam(e: Exam): Exam {
     e.id
   );
 
-  if (e.sections && e.sections.length > 0) {
+  if (e.sections) {
     db.prepare('DELETE FROM exam_sections WHERE exam_id = ?').run(e.id);
     const insertSec = db.prepare(`
       INSERT INTO exam_sections (id, exam_id, name_en, name_hi, display_order)
@@ -1608,6 +1618,7 @@ function loadFullAttempt(r: any, db: DatabaseSync): ExamAttempt {
     accuracyPercentage: r.accuracy_percentage === null ? undefined : r.accuracy_percentage,
     timeSpentSeconds: r.time_spent_seconds === null ? undefined : r.time_spent_seconds,
     sectionScores: r.section_scores_json ? JSON.parse(r.section_scores_json) : undefined,
+    currentQuestionId: r.current_question_id || undefined,
   };
 }
 
@@ -1620,8 +1631,8 @@ export function createAttempt(att: ExamAttempt): ExamAttempt {
       id, exam_id, user_id, started_at, submitted_at, expires_at,
       status, score, total_marks, total_questions, correct_count,
       incorrect_count, unanswered_count, accuracy_percentage,
-      time_spent_seconds, section_scores_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      time_spent_seconds, section_scores_json, current_question_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     att.id,
     att.examId,
@@ -1639,6 +1650,7 @@ export function createAttempt(att: ExamAttempt): ExamAttempt {
     att.accuracyPercentage ?? null,
     att.timeSpentSeconds ?? null,
     att.sectionScores ? JSON.stringify(att.sectionScores) : null,
+    att.currentQuestionId || null,
     now
   );
 
@@ -1702,7 +1714,7 @@ export function updateAttemptSubmission(att: ExamAttempt) {
       status = ?, submitted_at = ?, score = ?, total_marks = ?,
       total_questions = ?, correct_count = ?, incorrect_count = ?,
       unanswered_count = ?, accuracy_percentage = ?, time_spent_seconds = ?,
-      section_scores_json = ?
+      section_scores_json = ?, current_question_id = ?
     WHERE id = ?
   `).run(
     att.status,
@@ -1716,6 +1728,7 @@ export function updateAttemptSubmission(att: ExamAttempt) {
     att.accuracyPercentage ?? null,
     att.timeSpentSeconds ?? null,
     att.sectionScores ? JSON.stringify(att.sectionScores) : null,
+    att.currentQuestionId || null,
     att.id
   );
 
@@ -1883,8 +1896,7 @@ export function createStudyMaterial(m: StudyMaterial): StudyMaterial {
 
 export function deleteStudyMaterial(id: string): boolean {
   const db = getSqliteDb();
-  db.prepare('DELETE FROM study_materials WHERE id = ?').run(id);
-  return true;
+  return db.prepare('DELETE FROM study_materials WHERE id = ?').run(id).changes > 0;
 }
 
 export function getCalendarEvents(): CalendarEvent[] {
@@ -1914,8 +1926,7 @@ export function createCalendarEvent(e: CalendarEvent): CalendarEvent {
 
 export function deleteCalendarEvent(id: string): boolean {
   const db = getSqliteDb();
-  db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id);
-  return true;
+  return db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id).changes > 0;
 }
 
 export function getStudentPlanner(userId: string) {

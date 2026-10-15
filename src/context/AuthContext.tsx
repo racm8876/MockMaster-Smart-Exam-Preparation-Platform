@@ -10,7 +10,6 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (data: { name: string; email: string; password: string; confirmPassword?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  switchRoleDemo: (role: 'ADMIN' | 'STUDENT') => Promise<void>;
   claimDailyBonus: () => Promise<{ success: boolean; message?: string }>;
   refreshUser: () => Promise<void>;
 }
@@ -19,7 +18,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('mockmaster_jwt'));
+  // The JWT is stored only in an HttpOnly cookie. This sentinel keeps the
+  // existing authenticated-request checks without exposing a credential to JS.
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [language, setLanguageState] = useState<'en' | 'hi'>(() => {
     return (localStorage.getItem('mockmaster_lang') as 'en' | 'hi') || 'en';
@@ -33,7 +34,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ preferredLanguage: lang }),
       }).catch(() => {});
@@ -41,19 +41,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token]);
 
   const refreshUser = useCallback(async () => {
-    const currentToken = localStorage.getItem('mockmaster_jwt');
-    if (!currentToken) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const res = await fetch('/api/auth/me', {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
-      });
+      const res = await fetch('/api/auth/me');
       const data = await res.json();
       if (data.success && data.user) {
         setUser(data.user);
@@ -62,7 +51,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('mockmaster_lang', data.user.preferredLanguage);
         }
       } else {
-        localStorage.removeItem('mockmaster_jwt');
         setToken(null);
         setUser(null);
       }
@@ -86,8 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem('mockmaster_jwt', data.token);
-        setToken(data.token);
+        setToken('session');
         setUser(data.user);
         if (data.user.preferredLanguage) {
           setLanguageState(data.user.preferredLanguage);
@@ -110,8 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem('mockmaster_jwt', data.token);
-        setToken(data.token);
+        setToken('session');
         setUser(data.user);
         return { success: true };
       }
@@ -125,27 +111,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
-    localStorage.removeItem('mockmaster_jwt');
     setToken(null);
     setUser(null);
-  };
-
-  const switchRoleDemo = async (role: 'ADMIN' | 'STUDENT') => {
-    try {
-      const res = await fetch('/api/auth/switch-demo-role', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem('mockmaster_jwt', data.token);
-        setToken(data.token);
-        setUser(data.user);
-      }
-    } catch (err) {
-      console.error('Demo switch error', err);
-    }
   };
 
   const claimDailyBonus = async () => {
@@ -189,7 +156,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
-        switchRoleDemo,
         claimDailyBonus,
         refreshUser,
       }}

@@ -1,4 +1,5 @@
 import express from 'express';
+import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import apiRouter from './server/api';
@@ -11,13 +12,26 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
+  const isProduction = process.env.NODE_ENV === 'production';
 
   // Initialize DB and pre-seed
   getDb();
 
-  // Basic middleware
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // Basic production hardening. The app is same-origin; do not enable broad CORS.
+  app.disable('x-powered-by');
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (isProduction) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self'; connect-src 'self'");
+    }
+    next();
+  });
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // Attach auth extraction
   app.use(authMiddleware);
@@ -29,8 +43,6 @@ async function startServer() {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', name: 'MockMaster API', timestamp: new Date().toISOString() });
   });
-
-  const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
     // Dev mode: use Vite middleware
