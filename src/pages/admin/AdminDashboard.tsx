@@ -11,8 +11,8 @@ import {
   ShieldAlert,
   BarChart3,
   FileSpreadsheet,
+  ShieldCheck,
 } from 'lucide-react';
-import { LogoIcon } from '../../components/common/Logo';
 
 interface AdminDashboardProps {
   onNavigateTab: (tab: any) => void;
@@ -47,7 +47,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateTab })
       {/* Admin Welcome Banner */}
       <div className="bg-gradient-to-r from-[#173f35] to-[#0f2c25] text-white p-6 rounded-2xl border border-[#235447] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <LogoIcon size="lg" />
+          <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 text-[#c9ed71] flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
           <div className="space-y-1 text-center sm:text-left">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#c9ed71] bg-white/10 px-2.5 py-0.5 rounded-full">
               Chief Administrator Control Deck

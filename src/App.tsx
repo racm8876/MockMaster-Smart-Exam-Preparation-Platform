@@ -93,6 +93,13 @@ function MainAppContent() {
       <Header
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         onOpenAuthModal={handleOpenAuth}
+        onHomeClick={() => {
+          if (user) {
+            setCurrentTab(user.role === 'ADMIN' ? 'admin-dashboard' : 'student-dashboard');
+          }
+          setViewResultAttemptId(null);
+          setViewReviewAttemptId(null);
+        }}
       />
 
       {/* Main Container */}

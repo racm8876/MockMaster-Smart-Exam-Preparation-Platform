@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
 
 interface ExamDiscoveryPageProps {
   onStartExam: (examId: string) => void;
@@ -63,7 +62,9 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl border border-[#eceae1] shadow-xs">
         <div className="flex items-center gap-3.5">
-          <LogoIcon size="lg" />
+          <div className="w-12 h-12 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 shadow-xs border border-[#b8e6ce]">
+            <FileQuestion className="w-6 h-6" />
+          </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-[#173f35] bg-[#dff4e9] px-2 py-0.5 rounded border border-[#b8e6ce]">

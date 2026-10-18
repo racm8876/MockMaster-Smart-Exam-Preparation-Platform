@@ -13,7 +13,6 @@ import {
   BookOpen,
   Share2,
 } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
 
 interface ExamResultPageProps {
   attemptId: string;
@@ -81,9 +80,8 @@ export const ExamResultPage: React.FC<ExamResultPageProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Title & Exam metadata with Official Brand Emblem */}
+      {/* Title & Exam metadata */}
       <div className="text-center space-y-2 flex flex-col items-center">
-        <LogoIcon size="lg" />
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dff4e9] text-[#173f35] text-xs font-bold border border-[#b8e6ce]">
           <Award className="w-3.5 h-3.5 text-[#173f35]" />
           <span>{language === 'hi' ? 'आधिकारिक सीबीटी परीक्षा परिणाम' : 'Authoritative CBT Score Report'}</span>

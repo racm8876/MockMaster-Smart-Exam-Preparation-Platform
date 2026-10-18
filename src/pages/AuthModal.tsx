@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { X, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -71,7 +70,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Header Bar */}
         <div className="bg-[#173f35] px-6 py-5 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <LogoIcon size="md" />
+            <div className="w-9 h-9 rounded-xl bg-[#235447] text-[#c9ed71] flex items-center justify-center shrink-0 border border-[#2e6d5d]">
+              <Lock className="w-5 h-5" />
+            </div>
             <div>
               <h3 className="font-extrabold text-lg tracking-tight font-display text-white">
                 {tab === 'login' && (language === 'hi' ? 'लॉग इन करें' : 'Aspirant Log In')}

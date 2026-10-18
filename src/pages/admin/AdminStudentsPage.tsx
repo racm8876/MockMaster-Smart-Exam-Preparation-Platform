@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfile } from '../../types';
 import { Users, Search, Shield, CheckCircle2, XCircle, Flame, Target } from 'lucide-react';
-import { LogoIcon } from '../../components/common/Logo';
 
 export const AdminStudentsPage: React.FC = () => {
   const { token, language } = useAuth();
@@ -56,7 +55,9 @@ export const AdminStudentsPage: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
-        <LogoIcon size="md" />
+        <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+          <Users className="w-5 h-5" />
+        </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
             {language === 'hi' ? 'अभ्यर्थी प्रबंधन एवं अभिलेख' : 'Student Database & Access Control'}

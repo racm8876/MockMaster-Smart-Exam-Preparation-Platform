@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { History, Award, BookOpen, Clock, ArrowRight } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
 
 interface AttemptHistoryPageProps {
   onGoToResult: (attemptId: string) => void;
@@ -38,7 +37,9 @@ export const AttemptHistoryPage: React.FC<AttemptHistoryPageProps> = ({
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
-        <LogoIcon size="md" />
+        <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+          <History className="w-5 h-5" />
+        </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
             {language === 'hi' ? 'परीक्षा इतिहास एवं पिछले प्रयास' : 'Test Attempt History & Prior Records'}

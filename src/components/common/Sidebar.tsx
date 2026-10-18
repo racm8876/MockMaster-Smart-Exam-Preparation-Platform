@@ -215,12 +215,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Footer Info Box */}
-      <div className="p-4 border-t border-[#235447] bg-[#0f2c25]/60 flex flex-col gap-2">
-        <Logo variant="light" size="xs" showSubtitle={false} showBadge={false} />
+      {/* System Status Info Box */}
+      <div className="p-3.5 border-t border-[#235447] bg-[#0f2c25]/60 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 text-xs font-bold text-[#c9ed71]">
+          <span className="w-2 h-2 rounded-full bg-[#c9ed71] animate-pulse" />
+          <span>{language === 'hi' ? 'सीबीटी इंजन सक्रिय' : 'CBT Engine Online'}</span>
+        </div>
         <div className="flex items-center justify-between text-[10px] text-[#b8e6ce]">
-          <span>{language === 'hi' ? 'सीबीटी इंजन सक्रिय' : 'CBT Engine Active'}</span>
-          <span className="text-[#c9ed71] font-mono font-bold">v2.4 Pro</span>
+          <span>Server v2.4</span>
+          <span className="text-[#c9ed71] font-mono">100% Authoritative</span>
         </div>
       </div>
     </div>

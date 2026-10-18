@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ClientExam, StudentTask, CalendarEvent } from '../types';
+import { ClientExam, StudentTask, CalendarEvent, StudentGoal } from '../types';
 import {
   FileQuestion,
   TrendingUp,
@@ -13,8 +13,9 @@ import {
   Calendar,
   AlertCircle,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
+import { ScheduledExamCountdown } from '../components/dashboard/ScheduledExamCountdown';
 
 interface StudentDashboardProps {
   onStartExam: (examId: string) => void;
@@ -29,7 +30,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [exams, setExams] = useState<ClientExam[]>([]);
   const [tasks, setTasks] = useState<StudentTask[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [goal, setGoal] = useState<StudentGoal | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const reloadPlannerTasks = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/planner', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success && data.planner) {
+        setTasks(data.planner.tasks || []);
+        if (data.planner.goal) {
+          setGoal(data.planner.goal);
+        }
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -49,6 +65,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           const plannerData = await plannerRes.json();
           if (plannerData.success && plannerData.planner) {
             setTasks(plannerData.planner.tasks || []);
+            if (plannerData.planner.goal) {
+              setGoal(plannerData.planner.goal);
+            }
           }
         }
 
@@ -124,7 +143,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
         {/* Official Brand Seal Badge */}
         <div className="hidden md:flex flex-col items-center justify-center p-4 rounded-2xl bg-white/5 border border-white/15 backdrop-blur-xs shrink-0 z-10 text-center">
-          <LogoIcon size="xl" />
+          <ShieldCheck className="w-10 h-10 text-[#c9ed71]" />
           <span className="text-[10px] font-black uppercase tracking-wider text-[#c9ed71] mt-2">
             Verified CBT Portal
           </span>
@@ -136,6 +155,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {/* Decorative background shape */}
         <div className="absolute right-[-40px] bottom-[-40px] w-64 h-64 rounded-full bg-[#c9ed71]/10 pointer-events-none blur-2xl" />
       </div>
+
+      {/* Next Scheduled Mock Exam Countdown & Visual Progress Bar */}
+      <ScheduledExamCountdown
+        exams={exams}
+        events={events}
+        goal={goal}
+        onStartExam={onStartExam}
+        onNavigateTab={onNavigateTab}
+        onTaskAdded={reloadPlannerTasks}
+      />
 
       {/* 4 Core KPI Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

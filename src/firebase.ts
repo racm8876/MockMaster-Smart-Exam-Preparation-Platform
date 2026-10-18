@@ -20,7 +20,7 @@ export const firebaseAuth = getAuth(firebaseApp);
 // Initialize Analytics conditionally when supported in browser environment
 export let firebaseAnalytics: ReturnType<typeof getAnalytics> | null = null;
 if (typeof window !== 'undefined') {
-  isSupported().then((supported) => {
+  isSupported().then((supported: boolean) => {
     if (supported) {
       try {
         firebaseAnalytics = getAnalytics(firebaseApp);

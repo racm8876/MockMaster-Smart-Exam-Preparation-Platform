@@ -14,7 +14,6 @@ import {
   X,
   Eye,
 } from 'lucide-react';
-import { LogoIcon } from '../../components/common/Logo';
 
 export const AdminQuestionBank: React.FC = () => {
   const { token, language } = useAuth();
@@ -172,7 +171,9 @@ export const AdminQuestionBank: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
         <div className="flex items-center gap-3.5">
-          <LogoIcon size="md" />
+          <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+            <Database className="w-5 h-5" />
+          </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
               {language === 'hi' ? 'द्विभाषी प्रश्न बैंक एवं विषय वर्गीकरण' : 'Bilingual Question Bank & Taxonomy'}

@@ -10,10 +10,8 @@ import {
   Edit2,
   ArrowRight,
   FileText,
-  HelpCircle,
   Sparkles,
 } from 'lucide-react';
-import { LogoIcon } from '../../components/common/Logo';
 
 const SAMPLE_TEXT_PAPER = `Q1. Which constitutional amendment lowered the voting age in India from 21 to 18 years?
 (A) 42nd Amendment Act
@@ -116,7 +114,9 @@ export const AdminPaperImport: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
-        <LogoIcon size="md" />
+        <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+          <FileSpreadsheet className="w-5 h-5" />
+        </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
             {language === 'hi' ? 'स्मार्ट पेपर आयात एवं अनिवार्य समीक्षा कार्यक्षेत्र' : 'Question Paper Import & Review Workspace'}

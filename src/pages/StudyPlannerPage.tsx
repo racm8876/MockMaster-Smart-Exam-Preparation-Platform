@@ -13,7 +13,6 @@ import {
   AlertCircle,
   FileText,
 } from 'lucide-react';
-import { LogoIcon } from '../components/common/Logo';
 
 export const StudyPlannerPage: React.FC = () => {
   const { token, language } = useAuth();
@@ -199,7 +198,9 @@ export const StudyPlannerPage: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Title */}
       <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
-        <LogoIcon size="md" />
+        <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+          <CalendarCheck className="w-5 h-5" />
+        </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
             {language === 'hi' ? 'स्मार्ट अध्ययन योजनाकार एवं लक्ष्य' : 'Aspirant Study Planner & Mission Board'}

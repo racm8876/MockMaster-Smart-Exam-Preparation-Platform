@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { StudyMaterial, CalendarEvent } from '../../types';
-import { BookOpen, Calendar, Plus, Trash2, CheckCircle2, X } from 'lucide-react';
-import { LogoIcon } from '../../components/common/Logo';
+import { BookOpen, Calendar, Plus, Trash2, CheckCircle2, X, CalendarDays } from 'lucide-react';
 
 export const AdminMaterialsAndCalendar: React.FC = () => {
   const { token, language } = useAuth();
@@ -126,7 +125,9 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Page Header */}
       <div className="flex items-center gap-3.5 bg-white p-5 rounded-2xl border border-[#eceae1] shadow-xs">
-        <LogoIcon size="md" />
+        <div className="w-10 h-10 rounded-xl bg-[#dff4e9] text-[#173f35] flex items-center justify-center shrink-0 border border-[#b8e6ce]">
+          <CalendarDays className="w-5 h-5" />
+        </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
             {language === 'hi' ? 'संसाधन एवं परीक्षा कैलेंडर नियंत्रण' : 'Learning Resources & Examination Calendar'}
