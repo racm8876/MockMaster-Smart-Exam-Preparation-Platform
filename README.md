@@ -28,6 +28,27 @@ mode and foreign-key enforcement.
   `EMAIL_FROM` must be a sender verified by Resend. Without all three values,
   recovery deliberately returns a configuration error instead of pretending a
   reset email was delivered.
+- Signed-in users (including administrators) can change their email address or
+  password from **Account settings** in the header. Credential changes require
+  the current password. If the administrator cannot sign in, use **Forgot
+  password** after configuring the recovery email settings above.
+
+### Local administrator recovery
+
+For a self-hosted deployment where the administrator is locked out and email
+recovery is unavailable, run the local-only recovery command from the server
+machine. It is not an HTTP endpoint and requires filesystem/environment access
+to the deployment:
+
+```powershell
+$env:ADMIN_CURRENT_EMAIL = 'admin@example.com'
+$env:ADMIN_NEW_EMAIL = 'new-admin@example.com' # use the current address to keep it
+$env:ADMIN_NEW_PASSWORD = 'A-long-new-password1'
+npm run admin:reset
+```
+
+Remove those environment variables from the shell after use. The command only
+updates an existing `ADMIN` account, never creates or promotes a user.
 - Admin study materials require a real, accessible HTTPS PDF URL (or a real
   application-relative PDF deployed with the app). The reader embeds/downloads
   that file; it does not manufacture document content.

@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   Globe,
   Flame,
   Award,
   LogOut,
-  User,
+  Settings,
   Menu,
 } from 'lucide-react';
 
 import { Logo } from './Logo';
+import { AccountSettingsModal } from './AccountSettingsModal';
 
 interface HeaderProps {
   onOpenMobileMenu?: () => void;
@@ -19,6 +20,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModal, onHomeClick }) => {
   const { user, language, setLanguage, logout, claimDailyBonus } = useAuth();
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
 
   const handleLanguageToggle = () => {
     setLanguage(language === 'en' ? 'hi' : 'en');
@@ -78,7 +80,13 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModa
           {/* User Profile or Login CTA */}
           {user ? (
             <div className="flex items-center gap-2 pl-1">
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAccountSettingsOpen(true)}
+                className="flex items-center gap-2 rounded-lg p-1 text-left hover:bg-[#f6f5ee] transition-colors"
+                title="Account settings"
+                aria-label="Open account settings"
+              >
                 <div className="w-8 h-8 rounded-full bg-[#173f35] text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs">
                   {user.name.charAt(0)}
                 </div>
@@ -92,7 +100,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModa
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAccountSettingsOpen(true)}
+                className="hidden sm:inline-flex p-1.5 text-[#52635a] hover:text-[#173f35] hover:bg-[#f6f5ee] rounded-lg transition-colors"
+                title="Account settings"
+                aria-label="Open account settings"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
 
               <button
                 onClick={logout}
@@ -120,6 +138,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenAuthModa
           )}
         </div>
       </div>
+      {user && (
+        <AccountSettingsModal
+          isOpen={isAccountSettingsOpen}
+          onClose={() => setIsAccountSettingsOpen(false)}
+        />
+      )}
     </header>
   );
 };

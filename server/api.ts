@@ -251,6 +251,61 @@ router.put('/auth/preferences', requireAuth, (req: AuthenticatedRequest, res: Re
   return res.status(400).json({ success: false, error: 'Language must be "en" or "hi".' });
 });
 
+// Account credentials may only be changed by the signed-in account holder.
+// Requiring the current password for either a new email address or password
+// prevents a stolen browser session from silently taking over an account.
+router.put('/auth/account', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const requestedName = typeof req.body.name === 'string' ? req.body.name.trim() : user.name;
+  const requestedEmail = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : user.email;
+  const currentPassword = req.body.currentPassword;
+  const newPassword = req.body.newPassword;
+  const confirmPassword = req.body.confirmPassword;
+
+  if (requestedName.length < 2 || requestedName.length > 100) {
+    return res.status(400).json({ success: false, error: 'Name must be between 2 and 100 characters.' });
+  }
+  if (!EMAIL_PATTERN.test(requestedEmail)) {
+    return res.status(400).json({ success: false, error: 'Provide a valid email address.' });
+  }
+  if (newPassword !== undefined && newPassword !== '') {
+    if (!validPassword(newPassword)) {
+      return res.status(400).json({ success: false, error: 'Use at least 10 characters with uppercase, lowercase, and a number.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, error: 'New password and confirmation do not match.' });
+    }
+  } else if (confirmPassword) {
+    return res.status(400).json({ success: false, error: 'Enter a new password before confirming it.' });
+  }
+
+  const credentialsChanged = requestedEmail !== user.email || Boolean(newPassword);
+  if (credentialsChanged) {
+    if (typeof currentPassword !== 'string' || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+      return res.status(401).json({ success: false, error: 'Your current password is incorrect.' });
+    }
+    const existing = findUserByEmail(requestedEmail);
+    if (existing && existing.id !== user.id) {
+      return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+    }
+  }
+
+  if (requestedName === user.name && requestedEmail === user.email && !newPassword) {
+    return res.status(400).json({ success: false, error: 'There are no account changes to save.' });
+  }
+
+  user.name = requestedName;
+  user.email = requestedEmail;
+  if (newPassword) user.passwordHash = bcrypt.hashSync(newPassword, 12);
+  updateUser(user);
+
+  // Refresh the session token so its email claim cannot become stale.
+  res.cookie(SESSION_COOKIE, signToken(user), sessionCookie);
+  publish({ type: 'account-updated', userId: user.id, adminOnly: user.role === 'ADMIN' });
+  const { passwordHash: _, ...safeUser } = user;
+  return res.json({ success: true, user: safeUser, message: 'Account settings saved.' });
+});
+
 // Password reset has a real provider integration. Responses remain neutral to
 // avoid account enumeration; deployment must configure the documented Resend
 // credentials rather than silently pretending delivery happened.
