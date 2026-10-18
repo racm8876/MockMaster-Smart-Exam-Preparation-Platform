@@ -33,9 +33,9 @@ export const StudyPlannerPage: React.FC = () => {
   // Edit goal modal
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [targetExam, setTargetExam] = useState('');
-  const [targetScore, setTargetScore] = useState(160);
-  const [targetDate, setTargetDate] = useState('2026-12-15');
-  const [dailyHours, setDailyHours] = useState(6);
+  const [targetScore, setTargetScore] = useState(0);
+  const [targetDate, setTargetDate] = useState('');
+  const [dailyHours, setDailyHours] = useState(1);
 
   useEffect(() => {
     async function loadPlanner() {
@@ -221,12 +221,14 @@ export const StudyPlannerPage: React.FC = () => {
             <span>PRIMARY EXAMINATION MISSION</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black font-display text-white">
-            {goal?.targetExamEn || 'SSC CGL Tier 1 & Tier 2 2026'}
+            {goal?.targetExamEn || 'Set your examination target'}
           </h2>
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs text-[#dff4e9]">
-            <span>🎯 Target Score: <strong className="text-[#c9ed71] text-sm">{goal?.targetScore ?? 160} / 200</strong></span>
-            <span>📅 Exam Date: <strong>{goal?.targetDate || 'Dec 2026'}</strong></span>
-            <span>⏱️ Daily Hours: <strong>{goal?.dailyStudyHours ?? 6} hrs/day</strong></span>
+            {goal ? <>
+              <span>🎯 Target Score: <strong className="text-[#c9ed71] text-sm">{goal.targetScore}</strong></span>
+              <span>📅 Exam Date: <strong>{goal.targetDate}</strong></span>
+              <span>⏱️ Daily Hours: <strong>{goal.dailyStudyHours} hrs/day</strong></span>
+            </> : <span>Add a target score, exam date, and daily study commitment to track your progress.</span>}
           </div>
         </div>
 
@@ -235,7 +237,7 @@ export const StudyPlannerPage: React.FC = () => {
           className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0"
         >
           <Edit2 className="w-3.5 h-3.5" />
-          <span>Edit Target Goal</span>
+          <span>{goal ? 'Edit Target Goal' : 'Set Target Goal'}</span>
         </button>
       </div>
 

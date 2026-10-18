@@ -114,10 +114,10 @@ export const ScheduledExamCountdown: React.FC<ScheduledExamCountdownProps> = ({
         categoryEn: 'National Examination Portal',
         categoryHi: 'राष्ट्रीय परीक्षा पोर्टल',
         targetDateTime: `${officialExamEvt.date}T09:30:00`,
-        totalMarks: 100,
-        durationMinutes: 60,
-        totalQuestions: 100,
-        markingScheme: '+1.0 / -0.25',
+        totalMarks: 0,
+        durationMinutes: 0,
+        totalQuestions: 0,
+        markingScheme: 'Not specified',
         type: 'CALENDAR_EXAM',
         status: 'UPCOMING',
         descriptionEn: officialExamEvt.descriptionEn || 'Official nationwide preliminary examination.',
@@ -145,7 +145,10 @@ export const ScheduledExamCountdown: React.FC<ScheduledExamCountdownProps> = ({
       });
     }
 
-    return list;
+    // Published exams are immediately available and do not imply a schedule.
+    // This widget only renders administrator-created calendar events and the
+    // student's own goal—never dates manufactured in the client.
+    return list.filter((item) => item.type !== 'NATIONAL_MOCK');
   }, [exams, events, goal]);
 
   // Set default selected exam
@@ -343,18 +346,18 @@ export const ScheduledExamCountdown: React.FC<ScheduledExamCountdownProps> = ({
 
             {/* Quick badges for Duration, Marks, Negative Marking */}
             <div className="flex items-center gap-2 pt-1 flex-wrap">
-              <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
+              {activeItem.durationMinutes > 0 && <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
                 <Clock className="w-3 h-3 text-[#52635a]" />
                 {activeItem.durationMinutes} mins
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
+              </span>}
+              {activeItem.totalMarks > 0 && <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
                 <Award className="w-3 h-3 text-[#52635a]" />
                 {activeItem.totalMarks} Marks
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
+              </span>}
+              {activeItem.totalQuestions > 0 && <span className="px-2.5 py-1 rounded-lg bg-[#f6f5ee] border border-[#eceae1] text-[11px] font-bold text-[#173f35] flex items-center gap-1">
                 <BookOpen className="w-3 h-3 text-[#52635a]" />
                 {activeItem.totalQuestions} Questions
-              </span>
+              </span>}
               <span className="px-2.5 py-1 rounded-lg bg-[#dff4e9] border border-[#b8e6ce] text-[11px] font-bold text-[#173f35]">
                 Marking: {activeItem.markingScheme}
               </span>

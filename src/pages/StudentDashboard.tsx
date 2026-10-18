@@ -31,6 +31,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [tasks, setTasks] = useState<StudentTask[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [goal, setGoal] = useState<StudentGoal | null>(null);
+  const [recentAttempt, setRecentAttempt] = useState<{
+    examTitleEn: string; score: number; totalMarks: number; accuracyPercentage: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const reloadPlannerTasks = async () => {
@@ -50,10 +53,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const [examsRes, plannerRes, calRes] = await Promise.all([
+        const [examsRes, plannerRes, calRes, historyRes] = await Promise.all([
           fetch('/api/exams'),
           token ? fetch('/api/planner', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve(null),
           token ? fetch('/api/calendar/events', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve(null),
+          token ? fetch('/api/attempts/history', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve(null),
         ]);
 
         const examsData = await examsRes.json();
@@ -76,6 +80,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           if (calData.success && calData.officialEvents) {
             setEvents(calData.officialEvents);
           }
+        }
+
+        if (historyRes) {
+          const historyData = await historyRes.json();
+          if (historyData.success && historyData.history?.[0]) setRecentAttempt(historyData.history[0]);
         }
       } catch (err) {
         console.error('Failed to load dashboard data', err);
@@ -179,10 +188,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-              {user?.stats?.testsCompleted ?? 5}
+              {user?.stats?.testsCompleted ?? 0}
             </span>
             <span className="text-xs text-[#52635a]">
-              / {user?.stats?.testsAttempted ?? 6} attempted
+              / {user?.stats?.testsAttempted ?? 0} attempted
             </span>
           </div>
         </div>
@@ -198,9 +207,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-              {user?.stats?.avgAccuracy ? `${user.stats.avgAccuracy}%` : '85.4%'}
+              {`${user?.stats?.avgAccuracy ?? 0}%`}
             </span>
-            <span className="text-xs text-[#173f35] font-bold">Top 12%</span>
+            <span className="text-xs text-[#52635a]">Submitted attempts</span>
           </div>
         </div>
 
@@ -215,9 +224,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-              {user?.stats?.avgScore ?? '33.5'}
+              {user?.stats?.avgScore ?? 0}
             </span>
-            <span className="text-xs text-[#52635a]">/ 40 marks</span>
+            <span className="text-xs text-[#52635a]">Across completed tests</span>
           </div>
         </div>
 
@@ -232,10 +241,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-[#17241f] font-display">
-              {user?.stats?.points ?? 240}
+              {user?.stats?.points ?? 0}
             </span>
             <span className="text-xs text-[#ef765f] font-bold">
-              🔥 {user?.stats?.streakDays ?? 7}d streak
+              🔥 {user?.stats?.streakDays ?? 0}d streak
             </span>
           </div>
         </div>
@@ -307,20 +316,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               </div>
             ))}
+            {!loading && exams.length === 0 && (
+              <div className="bg-white rounded-2xl p-8 border border-dashed border-[#cfcbbe] text-center text-xs text-[#52635a]">
+                No published tests yet. An administrator can create and publish an exam from the admin console.
+              </div>
+            )}
           </div>
 
           {/* Quick Review of Previous Attempt */}
-          <div className="bg-[#f6f5ee] rounded-2xl p-5 border border-[#eceae1] flex items-center justify-between">
+          {recentAttempt && <div className="bg-[#f6f5ee] rounded-2xl p-5 border border-[#eceae1] flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[#173f35] text-[#c9ed71] flex items-center justify-center font-bold">
                 <Award className="w-5 h-5" />
               </div>
               <div>
                 <div className="text-xs font-bold text-[#173f35]">
-                  {language === 'hi' ? 'पिछला परिणाम: 34 / 40 अंक (85%)' : 'Recent Attempt: 34 / 40 Marks (85%)'}
+                  {language === 'hi' ? 'हाल का प्रयास' : `Recent Attempt: ${recentAttempt.score} / ${recentAttempt.totalMarks} Marks`}
                 </div>
                 <div className="text-[11px] text-[#52635a]">
-                  SSC CGL Tier 1 Mock 01 • Accuracy: 90%
+                  {recentAttempt.examTitleEn} • Accuracy: {recentAttempt.accuracyPercentage}%
                 </div>
               </div>
             </div>
@@ -330,7 +344,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             >
               {language === 'hi' ? 'समीक्षा देखें →' : 'Review Solutions →'}
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Right Sidebar: Planner & Official Calendar */}

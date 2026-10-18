@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ClientExam } from '../types';
+import { Category, ClientExam } from '../types';
 import {
   Search,
   Filter,
@@ -19,6 +19,7 @@ interface ExamDiscoveryPageProps {
 export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExam }) => {
   const { language } = useAuth();
   const [exams, setExams] = useState<ClientExam[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -26,11 +27,11 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
   useEffect(() => {
     async function loadExams() {
       try {
-        const res = await fetch('/api/exams');
-        const data = await res.json();
-        if (data.success) {
-          setExams(data.exams);
-        }
+        const [examResponse, categoryResponse] = await Promise.all([fetch('/api/exams'), fetch('/api/categories')]);
+        const data = await examResponse.json();
+        const categoryData = await categoryResponse.json();
+        if (data.success) setExams(data.exams);
+        if (categoryData.success) setCategories(categoryData.categories);
       } catch (err) {
         console.error('Failed to load exams', err);
       } finally {
@@ -40,12 +41,14 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
     loadExams();
   }, []);
 
-  const categories = [
+  const legacyCategories = [
     { id: 'all', nameEn: 'All Exams', nameHi: 'सभी परीक्षाएं' },
     { id: 'cat-ssc', nameEn: 'SSC (CGL, CHSL, CPO)', nameHi: 'एसएससी (सीजीएल, सीएचएसएल)' },
     { id: 'cat-banking', nameEn: 'Banking (IBPS, SBI)', nameHi: 'बैंकिंग (आईबीपीएस, एसबीआई)' },
     { id: 'cat-railway', nameEn: 'Railways (RRB NTPC)', nameHi: 'रेलवे (आरआरबी एनटीपीसी)' },
   ];
+
+  const categoryOptions = [{ id: 'all', nameEn: 'All Exams', nameHi: 'सभी परीक्षाएं' }, ...categories];
 
   const filteredExams = exams.filter((exam) => {
     const matchesCategory = selectedCategory === 'all' || exam.categoryId === selectedCategory;
@@ -87,7 +90,7 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
       <div className="bg-white rounded-2xl p-4 border border-[#eceae1] shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-          {categories.map((cat) => (
+          {categoryOptions.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
@@ -137,7 +140,7 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
                     {language === 'hi' ? exam.categoryNameHi || 'सामान्य' : exam.categoryNameEn || 'SSC'}
                   </span>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#f6f5ee] text-[#173f35] border border-[#eceae1]">
-                    CBT 2026
+                    CBT
                   </span>
                 </div>
 
@@ -153,7 +156,7 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
                 <div className="grid grid-cols-3 gap-2 py-2 border-y border-[#eceae1] text-center">
                   <div>
                     <span className="block text-[10px] text-[#52635a]">Questions</span>
-                    <span className="text-xs font-bold text-[#17241f]">{exam.totalQuestions ?? 20}</span>
+                    <span className="text-xs font-bold text-[#17241f]">{exam.totalQuestions ?? 0}</span>
                   </div>
                   <div>
                     <span className="block text-[10px] text-[#52635a]">Duration</span>
@@ -166,10 +169,12 @@ export const ExamDiscoveryPage: React.FC<ExamDiscoveryPageProps> = ({ onStartExa
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-[#52635a]">
-                  <span>Marking: <strong className="text-[#173f35]">+2.0</strong> / <strong className="text-red-600">-0.5</strong></span>
-                  <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Instant Analysis
-                  </span>
+                  <span>Server-authoritative scoring</span>
+                  {exam.settings.showInstantResult && (
+                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Instant Analysis
+                    </span>
+                  )}
                 </div>
               </div>
 

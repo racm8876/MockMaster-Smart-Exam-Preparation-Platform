@@ -92,7 +92,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 MockMaster server running on http://0.0.0.0:${PORT}`);
+    console.log(`🚀 MockMaster server running locally at http://localhost:${PORT}`);
   });
 }
 

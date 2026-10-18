@@ -31,8 +31,8 @@ export const AdminQuestionBank: React.FC = () => {
   // Add question modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({
-    subjectId: 'sub-reasoning',
-    topicId: 'top-series',
+    subjectId: '',
+    topicId: '',
     difficulty: 'MEDIUM',
     textEn: '',
     textHi: '',
@@ -115,8 +115,8 @@ export const AdminQuestionBank: React.FC = () => {
         setQuestions((prev) => [data.question, ...prev]);
         setShowAddModal(false);
         setFormData({
-          subjectId: 'sub-reasoning',
-          topicId: 'top-series',
+          subjectId: '',
+          topicId: '',
           difficulty: 'MEDIUM',
           textEn: '',
           textHi: '',
@@ -327,6 +327,7 @@ export const AdminQuestionBank: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, subjectId: e.target.value })}
                     className="w-full p-2 rounded-xl border border-[#cfcbbe]"
                   >
+                    <option value="">Select subject</option>
                     {taxonomy.subjects.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.nameEn}

@@ -48,10 +48,30 @@ export function getSqliteDb(): DatabaseSync {
   `);
 
   initTables(sqliteDb);
-  seedIfEmpty(sqliteDb);
+  purgeLegacySeedData(sqliteDb);
+  // Demonstration data is opt-in only and is never loaded by a production
+  // deployment. Existing installations are cleaned of the legacy seed records
+  // above without touching administrator-created records.
+  if (process.env.SEED_DEMO_DATA === 'true') seedIfEmpty(sqliteDb);
   ensureConfiguredAdmin(sqliteDb);
 
   return sqliteDb;
+}
+
+function purgeLegacySeedData(db: DatabaseSync) {
+  const legacyUser = db.prepare("SELECT id FROM users WHERE id = 'user-student-01'").get();
+  const legacyExam = db.prepare("SELECT id FROM exams WHERE id IN ('exam-ssc-cgl-01', 'exam-ibps-speed-01') LIMIT 1").get();
+  if (!legacyUser && !legacyExam) return;
+
+  db.exec(`
+    DELETE FROM users WHERE id = 'user-student-01';
+    DELETE FROM exams WHERE id IN ('exam-ssc-cgl-01', 'exam-ibps-speed-01');
+    DELETE FROM questions
+      WHERE id GLOB 'q-res-*' OR id GLOB 'q-gk-*' OR id GLOB 'q-qnt-*' OR id GLOB 'q-eng-*';
+    DELETE FROM study_materials WHERE id IN ('mat-01', 'mat-02', 'mat-03');
+    DELETE FROM calendar_events WHERE id IN ('evt-01', 'evt-02', 'evt-03');
+  `);
+  console.log('Removed legacy demonstration records. Create and publish production content from the admin console.');
 }
 
 // Deployment may begin from an existing data file (for example a restored
@@ -1981,7 +2001,7 @@ export function getStudentPlanner(userId: string) {
   }));
 
   const goalRow = db.prepare('SELECT * FROM student_goals WHERE user_id = ?').get(userId) as any;
-  const goal: StudentGoal = goalRow
+  const goal: StudentGoal | null = goalRow
     ? {
         id: goalRow.id,
         userId: goalRow.user_id,
@@ -1993,7 +2013,7 @@ export function getStudentPlanner(userId: string) {
         notes: goalRow.notes || '',
         updatedAt: goalRow.updated_at,
       }
-    : {
+    : null /* Legacy seeded goal retained only in source history; it is never returned. {
         id: `goal-${userId}`,
         userId,
         targetExamEn: 'SSC CGL Tier 1 & 2',
@@ -2003,7 +2023,7 @@ export function getStudentPlanner(userId: string) {
         dailyStudyHours: 6,
         notes: 'Target 90%+ in Reasoning and Math',
         updatedAt: new Date().toISOString(),
-      };
+      } */;
 
   return { tasks, stickyNotes, datedNotes, goal };
 }

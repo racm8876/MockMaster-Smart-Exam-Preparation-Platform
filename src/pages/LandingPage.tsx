@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { ClientExam } from '../types';
 import {
   Award,
   ShieldCheck,
@@ -26,6 +27,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onExploreTests,
 }) => {
   const { language } = useAuth();
+  const [featuredExam, setFeaturedExam] = useState<ClientExam | null>(null);
+
+  useEffect(() => {
+    fetch('/api/exams')
+      .then((response) => response.json())
+      .then((data) => setFeaturedExam(data.success ? data.exams?.[0] || null : null))
+      .catch(() => setFeaturedExam(null));
+  }, []);
 
   return (
     <div className="space-y-16 pb-12">
@@ -51,10 +60,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
-              onClick={() => onStartExam('exam-ssc-cgl-01')}
+              onClick={() => featuredExam ? onStartExam(featuredExam.id) : onExploreTests()}
               className="px-6 py-3 rounded-xl bg-[#c9ed71] hover:bg-[#b8e25d] text-[#173f35] font-extrabold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2"
             >
-              <span>{language === 'hi' ? 'लाइव टेस्ट 01 शुरू करें' : 'Take Free Live Mock Test'}</span>
+              <span>{featuredExam ? (language === 'hi' ? 'लाइव टेस्ट शुरू करें' : 'Start Available Test') : (language === 'hi' ? 'टेस्ट कैटलॉग देखें' : 'Browse Test Catalog')}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
             <button
@@ -138,8 +147,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* 3. Featured 20-Question Bilingual Seed Mock Test */}
-      <section className="bg-white rounded-3xl p-6 sm:p-8 border border-[#eceae1] shadow-xs flex flex-col md:flex-row items-center justify-between gap-6">
+      {/* 3. Featured published exam, loaded from the API */}
+      {featuredExam ? <section className="bg-white rounded-3xl p-6 sm:p-8 border border-[#eceae1] shadow-xs flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-3 flex-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-[#dff4e9] text-[#173f35]">
@@ -148,28 +157,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span className="text-xs text-[#52635a] font-semibold">Tier 1 National Pattern</span>
           </div>
           <h3 className="text-xl sm:text-2xl font-black text-[#17241f] font-display">
-            SSC CGL Tier 1 Full Mock Test 2026 (All India Rank Series 01)
+            {language === 'hi' ? featuredExam.titleHi : featuredExam.titleEn}
           </h3>
           <p className="text-xs text-[#52635a] leading-relaxed">
-            Full 20-question bilingual test spanning Reasoning, General Awareness, Quantitative Aptitude, and English Language with KaTeX mathematical formulas.
+            {language === 'hi' ? featuredExam.descriptionHi : featuredExam.descriptionEn}
           </p>
           <div className="flex items-center gap-4 text-xs font-bold text-[#173f35]">
-            <span>20 Questions</span>
+            <span>{featuredExam.totalQuestions ?? 0} Questions</span>
             <span>•</span>
-            <span>30 Minutes</span>
+            <span>{featuredExam.durationMinutes} Minutes</span>
             <span>•</span>
-            <span>40 Marks (+2 / -0.5)</span>
+            <span>{featuredExam.totalMarks} Marks</span>
           </div>
         </div>
 
         <button
-          onClick={() => onStartExam('exam-ssc-cgl-01')}
+          onClick={() => onStartExam(featuredExam.id)}
           className="px-6 py-3.5 rounded-xl bg-[#173f35] hover:bg-[#235447] text-[#c9ed71] font-bold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 shrink-0"
         >
           <span>Start CBT Attempt</span>
           <ArrowRight className="w-4 h-4" />
         </button>
-      </section>
+      </section> : <section className="bg-white rounded-3xl p-8 border border-dashed border-[#cfcbbe] text-center space-y-3">
+        <h3 className="text-lg font-bold text-[#17241f]">No published tests yet</h3>
+        <p className="text-xs text-[#52635a]">Published exams will appear here as soon as an administrator makes them available.</p>
+        <button onClick={onExploreTests} className="px-5 py-2.5 rounded-xl bg-[#173f35] text-[#c9ed71] text-xs font-bold">Browse Test Catalog</button>
+      </section>}
     </div>
   );
 };

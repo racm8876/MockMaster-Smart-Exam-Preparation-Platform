@@ -360,6 +360,11 @@ router.get('/exams', (req, res) => {
   return res.json({ success: true, exams: safeList });
 });
 
+router.get('/categories', (_req, res) => {
+  const db = getDb();
+  return res.json({ success: true, categories: db.categories });
+});
+
 // Exam detail & instruction view
 router.get('/exams/:id', (req, res) => {
   const db = getDb();
@@ -1022,18 +1027,19 @@ router.delete('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, 
 router.put('/planner/goals', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.id;
   const { targetExamEn, targetExamHi, targetScore, targetDate, dailyStudyHours, notes } = req.body;
-  if (targetDate !== undefined && !validDate(targetDate)) return res.status(400).json({ success: false, error: 'Target date must use YYYY-MM-DD.' });
-  if (targetScore !== undefined && (!Number.isFinite(Number(targetScore)) || Number(targetScore) < 0 || Number(targetScore) > 10_000)) return res.status(400).json({ success: false, error: 'Target score is invalid.' });
-  if (dailyStudyHours !== undefined && (!Number.isFinite(Number(dailyStudyHours)) || Number(dailyStudyHours) <= 0 || Number(dailyStudyHours) > 24)) return res.status(400).json({ success: false, error: 'Daily study hours must be between 0 and 24.' });
+  if (typeof targetExamEn !== 'string' || !targetExamEn.trim() || targetExamEn.trim().length > 200) return res.status(400).json({ success: false, error: 'Target exam name is required.' });
+  if (!validDate(targetDate)) return res.status(400).json({ success: false, error: 'Target date must use YYYY-MM-DD.' });
+  if (!Number.isFinite(Number(targetScore)) || Number(targetScore) < 0 || Number(targetScore) > 10_000) return res.status(400).json({ success: false, error: 'Target score is invalid.' });
+  if (!Number.isFinite(Number(dailyStudyHours)) || Number(dailyStudyHours) <= 0 || Number(dailyStudyHours) > 24) return res.status(400).json({ success: false, error: 'Daily study hours must be between 0 and 24.' });
 
   const goal: StudentGoal = {
     id: `goal-${userId}`,
     userId,
-    targetExamEn: targetExamEn || 'SSC CGL',
+    targetExamEn: targetExamEn.trim(),
     targetExamHi: targetExamHi || 'एसएससी सीजीएल',
-    targetScore: Number(targetScore) || 150,
-    targetDate: targetDate || '2026-12-31',
-    dailyStudyHours: Number(dailyStudyHours) || 5,
+    targetScore: Number(targetScore),
+    targetDate,
+    dailyStudyHours: Number(dailyStudyHours),
     notes: notes || '',
     updatedAt: new Date().toISOString(),
   };
@@ -1212,7 +1218,7 @@ router.get('/admin/analytics', requireAdmin, (_req, res) => {
       }
     });
 
-    const accuracy = answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 50;
+    const accuracy = answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 0;
     return {
       questionId: q.id,
       textSnippet: q.textEn.slice(0, 60) + '...',
@@ -1376,7 +1382,7 @@ router.post('/admin/questions', requireAdmin, (req, res) => {
   }
 
   const db = getDb();
-  const resolvedSubjectId = subjectId || 'sub-reasoning';
+  const resolvedSubjectId = typeof subjectId === 'string' ? subjectId : '';
   if (!db.subjects.some((subject) => subject.id === resolvedSubjectId)) return res.status(400).json({ success: false, error: 'Select a valid subject.' });
   if (topicId && !db.topics.some((topic) => topic.id === topicId && topic.subjectId === resolvedSubjectId)) return res.status(400).json({ success: false, error: 'Select a topic belonging to the selected subject.' });
   if (!['EASY', 'MEDIUM', 'HARD'].includes(difficulty || 'MEDIUM')) return res.status(400).json({ success: false, error: 'Invalid difficulty.' });
