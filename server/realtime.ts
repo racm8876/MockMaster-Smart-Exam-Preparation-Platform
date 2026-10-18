@@ -26,6 +26,17 @@ export function publish(event: RealtimeEvent) {
   }
 }
 
+// A suspended user must not keep an already-open event stream. Closing it
+// causes the client to re-check its session and return to the signed-out view.
+export function disconnectUser(userId: string) {
+  for (const client of clients) {
+    if (client.userId !== userId) continue;
+    client.response.write('event: access-revoked\ndata: {}\n\n');
+    client.response.end();
+    clients.delete(client);
+  }
+}
+
 // Keep intermediary proxies from silently closing otherwise idle SSE streams.
 setInterval(() => {
   for (const client of clients) client.response.write(': keepalive\n\n');

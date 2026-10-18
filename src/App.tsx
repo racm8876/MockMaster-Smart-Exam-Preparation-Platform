@@ -25,7 +25,7 @@ import { AdminMaterialsAndCalendar } from './pages/admin/AdminMaterialsAndCalend
 import { Logo } from './components/common/Logo';
 
 function MainAppContent() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, refreshUser } = useAuth();
 
   // Active view states
   const [currentTab, setCurrentTab] = useState<ActiveTab>('student-dashboard');
@@ -50,12 +50,34 @@ function MainAppContent() {
     }
   }, [resetToken, user]);
 
+  // A role is authoritative on the server. Keep the client view aligned after
+  // sign-in, refresh, or a role/session change rather than relying only on the
+  // sidebar hiding unavailable navigation entries.
+  useEffect(() => {
+    if (!user) {
+      setCurrentTab('student-dashboard');
+      return;
+    }
+    if (user.role === 'ADMIN' && !currentTab.startsWith('admin-')) {
+      setCurrentTab('admin-dashboard');
+    }
+    if (user.role === 'STUDENT' && currentTab.startsWith('admin-')) {
+      setCurrentTab('student-dashboard');
+    }
+  }, [user?.id, user?.role]);
+
   useEffect(() => {
     if (!user || activeExamId) return;
     const stream = new EventSource('/api/events');
     stream.addEventListener('data-change', () => setRealtimeVersion((version) => version + 1));
+    stream.addEventListener('access-revoked', () => {
+      stream.close();
+      setActiveExamId(null);
+      setInstructionsExamId(null);
+      void refreshUser();
+    });
     return () => stream.close();
-  }, [user?.id, activeExamId]);
+  }, [user?.id, activeExamId, refreshUser]);
 
   if (isLoading) {
     return (
@@ -169,38 +191,38 @@ function MainAppContent() {
             /* Authenticated App Views */
             <div key={`${currentTab}-${realtimeVersion}`}>
               {/* Student Views */}
-              {currentTab === 'student-dashboard' && (
+              {user.role === 'STUDENT' && currentTab === 'student-dashboard' && (
                 <StudentDashboard
                   onStartExam={handleStartExamFlow}
                   onNavigateTab={(tab) => setCurrentTab(tab)}
                 />
               )}
-              {currentTab === 'student-exams' && (
+              {user.role === 'STUDENT' && currentTab === 'student-exams' && (
                 <ExamDiscoveryPage onStartExam={handleStartExamFlow} />
               )}
-              {currentTab === 'student-performance' && <PerformancePage />}
-              {currentTab === 'student-history' && (
+              {user.role === 'STUDENT' && currentTab === 'student-performance' && <PerformancePage />}
+              {user.role === 'STUDENT' && currentTab === 'student-history' && (
                 <AttemptHistoryPage
                   onGoToResult={(attId) => setViewResultAttemptId(attId)}
                   onGoToReview={(attId) => setViewReviewAttemptId(attId)}
                 />
               )}
-              {currentTab === 'student-materials' && <StudyMaterialsPage />}
-              {currentTab === 'student-planner' && <StudyPlannerPage />}
-              {currentTab === 'student-leaderboard' && <LeaderboardPage />}
+              {user.role === 'STUDENT' && currentTab === 'student-materials' && <StudyMaterialsPage />}
+              {user.role === 'STUDENT' && currentTab === 'student-planner' && <StudyPlannerPage />}
+              {user.role === 'STUDENT' && currentTab === 'student-leaderboard' && <LeaderboardPage />}
 
               {/* Administrator Views */}
-              {currentTab === 'admin-dashboard' && (
+              {user.role === 'ADMIN' && currentTab === 'admin-dashboard' && (
                 <AdminDashboard onNavigateTab={(tab) => setCurrentTab(tab)} />
               )}
-              {currentTab === 'admin-analytics' && <AdminAnalyticsPage />}
-              {currentTab === 'admin-questions' && <AdminQuestionBank />}
-              {currentTab === 'admin-exams' && (
+              {user.role === 'ADMIN' && currentTab === 'admin-analytics' && <AdminAnalyticsPage />}
+              {user.role === 'ADMIN' && currentTab === 'admin-questions' && <AdminQuestionBank />}
+              {user.role === 'ADMIN' && currentTab === 'admin-exams' && (
                 <AdminExamsPage onPreviewExam={handleStartExamFlow} />
               )}
-              {currentTab === 'admin-import' && <AdminPaperImport />}
-              {currentTab === 'admin-students' && <AdminStudentsPage />}
-              {currentTab === 'admin-resources' && <AdminMaterialsAndCalendar />}
+              {user.role === 'ADMIN' && currentTab === 'admin-import' && <AdminPaperImport />}
+              {user.role === 'ADMIN' && currentTab === 'admin-students' && <AdminStudentsPage />}
+              {user.role === 'ADMIN' && currentTab === 'admin-resources' && <AdminMaterialsAndCalendar />}
             </div>
           )}
         </main>

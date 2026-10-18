@@ -86,6 +86,12 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
       error: 'Authentication required. Please log in to proceed.',
     });
   }
+  if (!req.user.isActive) {
+    return res.status(403).json({
+      success: false,
+      error: 'This account has been suspended. Please contact an administrator.',
+    });
+  }
   next();
 }
 
@@ -94,6 +100,12 @@ export function requireAdmin(req: AuthenticatedRequest, res: Response, next: Nex
     return res.status(401).json({
       success: false,
       error: 'Authentication required. Please log in.',
+    });
+  }
+  if (!req.user.isActive) {
+    return res.status(403).json({
+      success: false,
+      error: 'This account has been suspended. Please contact an administrator.',
     });
   }
   if (req.user.role !== 'ADMIN') {

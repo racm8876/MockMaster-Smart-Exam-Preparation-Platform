@@ -36,7 +36,7 @@ import {
   verifyPasswordReset,
   markPasswordResetUsed,
 } from './db';
-import { publish, subscribe } from './realtime';
+import { disconnectUser, publish, subscribe } from './realtime';
 import {
   AuthenticatedRequest,
   signToken,
@@ -1347,6 +1347,31 @@ router.put('/admin/users/:id/toggle-status', requireAdmin, (req, res) => {
 
   user.isActive = !user.isActive;
   updateUser(user);
+  if (!user.isActive) disconnectUser(user.id);
+  publish({ type: 'user-status-updated', userId: user.id });
+  publish({ type: 'user-status-updated', adminOnly: true });
+  return res.json({ success: true, isActive: user.isActive });
+});
+
+// Explicit status update for the control panel. Keep the original toggle
+// endpoint above for compatibility with existing clients.
+router.put('/admin/users/:id/status', requireAdmin, (req, res) => {
+  if (typeof req.body.isActive !== 'boolean') {
+    return res.status(400).json({ success: false, error: 'isActive must be a boolean.' });
+  }
+  const db = getDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+  if (user.role !== 'STUDENT') {
+    return res.status(400).json({ success: false, error: 'Only student accounts can be managed here.' });
+  }
+  if (user.isActive === req.body.isActive) {
+    return res.json({ success: true, isActive: user.isActive, message: 'Account status is already up to date.' });
+  }
+
+  user.isActive = req.body.isActive;
+  updateUser(user);
+  if (!user.isActive) disconnectUser(user.id);
   publish({ type: 'user-status-updated', userId: user.id });
   publish({ type: 'user-status-updated', adminOnly: true });
   return res.json({ success: true, isActive: user.isActive });

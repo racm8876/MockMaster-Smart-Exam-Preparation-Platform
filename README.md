@@ -35,6 +35,19 @@ mode and foreign-key enforcement.
 
 ### Local administrator recovery
 
+To create an additional administrator on the server machine, choose the email
+and password yourself and run:
+
+```powershell
+$env:ADMIN_NAME = 'Site Administrator' # optional
+$env:ADMIN_EMAIL = 'admin@example.com'
+$env:ADMIN_PASSWORD = 'A-long-new-password1'
+npm run admin:create
+```
+
+The account is created with the `ADMIN` role, and the command rejects an email
+that is already registered. Remove those variables from the shell after use.
+
 For a self-hosted deployment where the administrator is locked out and email
 recovery is unavailable, run the local-only recovery command from the server
 machine. It is not an HTTP endpoint and requires filesystem/environment access

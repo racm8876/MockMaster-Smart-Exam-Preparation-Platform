@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfile } from '../../types';
-import { Users, Search, Shield, CheckCircle2, XCircle, Flame, Target } from 'lucide-react';
+import { Users, Search, AlertCircle, LoaderCircle } from 'lucide-react';
 
 export const AdminStudentsPage: React.FC = () => {
   const { token, language } = useAuth();
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadStudents() {
@@ -16,11 +18,11 @@ export const AdminStudentsPage: React.FC = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        if (data.success) {
-          setStudents(data.users);
-        }
+        if (!res.ok || !data.success) throw new Error(data.error || 'Unable to load student records.');
+        setStudents(data.users);
       } catch (err) {
         console.error('Failed to load students', err);
+        setError(err instanceof Error ? err.message : 'Unable to load student records.');
       } finally {
         setLoading(false);
       }
@@ -28,21 +30,32 @@ export const AdminStudentsPage: React.FC = () => {
     loadStudents();
   }, [token]);
 
-  const handleToggleStatus = async (userId: string) => {
+  const handleSetStatus = async (student: UserProfile) => {
+    const isActivating = !student.isActive;
+    if (!isActivating && !window.confirm(`Suspend ${student.name}? They will be signed out immediately and cannot access their account until reactivated.`)) {
+      return;
+    }
+    setError(null);
+    setUpdatingUserId(student.id);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/toggle-status`, {
+      const res = await fetch(`/api/admin/users/${student.id}/status`, {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isActive: isActivating }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setStudents((prev) =>
-          prev.map((s) => (s.id === userId ? { ...s, isActive: data.isActive } : s))
+          prev.map((s) => (s.id === student.id ? { ...s, isActive: data.isActive } : s))
         );
       } else {
-        alert(data.error || 'Failed to update user status.');
+        setError(data.error || 'Failed to update user status.');
       }
-    } catch {}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update user status.');
+    } finally {
+      setUpdatingUserId(null);
+    }
   };
 
   const filtered = students.filter(
@@ -82,6 +95,7 @@ export const AdminStudentsPage: React.FC = () => {
 
       {/* Students Table */}
       <div className="bg-white rounded-2xl border border-[#eceae1] shadow-xs overflow-hidden">
+        {error && <div className="m-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{error}</div>}
         <table className="w-full text-left text-xs">
           <thead className="bg-[#f6f5ee] border-b border-[#eceae1] text-[#52635a] uppercase font-bold text-[10px] tracking-wider">
             <tr>
@@ -118,18 +132,26 @@ export const AdminStudentsPage: React.FC = () => {
                 </td>
                 <td className="py-4 px-6 text-right">
                   <button
-                    onClick={() => handleToggleStatus(s.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                    type="button"
+                    disabled={updatingUserId === s.id}
+                    onClick={() => handleSetStatus(s)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-60 ${
                       s.isActive
                         ? 'border border-red-200 text-red-600 hover:bg-red-50'
                         : 'bg-emerald-600 text-white hover:bg-emerald-700'
                     }`}
                   >
-                    {s.isActive ? 'Deactivate' : 'Reactivate'}
+                    {updatingUserId === s.id ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : (s.isActive ? 'Deactivate' : 'Reactivate')}
                   </button>
                 </td>
               </tr>
             ))}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={7} className="py-10 px-6 text-center text-[#52635a]">No student accounts match this search.</td></tr>
+            )}
+            {loading && (
+              <tr><td colSpan={7} className="py-10 px-6 text-center text-[#52635a]">Loading student records…</td></tr>
+            )}
           </tbody>
         </table>
       </div>

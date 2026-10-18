@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "admin:create": "tsx scripts/create-admin.ts",
     "admin:reset": "tsx scripts/reset-admin.ts"
   },
   "dependencies": {
