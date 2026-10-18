@@ -33,6 +33,27 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+  // Small in-process guard for credential endpoints. For horizontally scaled
+  // production deployments this should be replaced by a shared edge/Redis
+  // limiter, but it prevents unbounded brute force in the supplied server.
+  const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+  app.use('/api/auth', (req, res, next) => {
+    if (!['/login', '/register', '/forgot-password', '/reset-password'].includes(req.path) || req.method !== 'POST') return next();
+    const key = `${req.ip}:${req.path}`;
+    const now = Date.now();
+    const entry = loginAttempts.get(key);
+    if (!entry || entry.resetAt <= now) {
+      loginAttempts.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 });
+      return next();
+    }
+    entry.count += 1;
+    if (entry.count > 20) {
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+      return res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+    }
+    return next();
+  });
+
   // Attach auth extraction
   app.use(authMiddleware);
 
@@ -42,6 +63,15 @@ async function startServer() {
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', name: 'MockMaster API', timestamp: new Date().toISOString() });
+  });
+
+  app.use('/api', (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('API request failed:', err);
+    if (res.headersSent) return;
+    if (err instanceof SyntaxError && 'status' in err && (err as { status?: number }).status === 400) {
+      return res.status(400).json({ success: false, error: 'Request body must be valid JSON.' });
+    }
+    res.status(500).json({ success: false, error: 'An unexpected server error occurred.' });
   });
 
   if (!isProduction) {

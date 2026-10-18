@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   getDb,
   findUserByEmail,
@@ -31,7 +32,11 @@ import {
   getCalendarEvents,
   saveDatedNote,
   deleteDatedNote,
+  createPasswordReset,
+  verifyPasswordReset,
+  markPasswordResetUsed,
 } from './db';
+import { publish, subscribe } from './realtime';
 import {
   AuthenticatedRequest,
   signToken,
@@ -69,7 +74,46 @@ function validPassword(password: unknown): password is string {
     && /\d/.test(password);
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ATTEMPT_STATUSES: QuestionAttemptStatus[] = ['NOT_VISITED', 'NOT_ANSWERED', 'ANSWERED', 'MARKED_FOR_REVIEW', 'ANSWERED_AND_MARKED'];
+
+function validDate(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
+}
+
+function sendResetEmail(email: string, resetUrl: string): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+  if (!apiKey || !from) {
+    return Promise.reject(new Error('Password-reset email is not configured. Set RESEND_API_KEY and EMAIL_FROM.'));
+  }
+  return fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: 'Reset your MockMaster password',
+      html: `<p>Use the secure link below to reset your password. It expires in 30 minutes.</p><p><a href="${resetUrl}">Reset password</a></p>`,
+    }),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`Email provider rejected request (${response.status}).`);
+  });
+}
+
 const router = Router();
+
+// Cookie-authenticated mutations must originate from this application. Requests
+// without an Origin header (CLI/API clients) remain supported for operations
+// that authenticate with a bearer token.
+router.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const origin = req.get('origin');
+  if (origin && origin !== `${req.protocol}://${req.get('host')}`) {
+    return res.status(403).json({ success: false, error: 'Cross-origin request rejected.' });
+  }
+  return next();
+});
 
 // ==========================================
 // 1. AUTHENTICATION & PROFILE ROUTES
@@ -92,6 +136,9 @@ router.post('/auth/register', (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
+  if (String(name).trim().length < 2 || String(name).trim().length > 100 || !EMAIL_PATTERN.test(normalizedEmail)) {
+    return res.status(400).json({ success: false, error: 'Provide a valid name and email address.' });
+  }
   const existing = findUserByEmail(normalizedEmail);
   if (existing) {
     return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
@@ -99,7 +146,7 @@ router.post('/auth/register', (req, res) => {
 
   const passwordHash = bcrypt.hashSync(password, 12);
   const newUser: User = {
-    id: `user-stu-${Date.now()}`,
+    id: `user-stu-${randomUUID()}`,
     name: String(name).trim(),
     email: normalizedEmail,
     passwordHash,
@@ -119,6 +166,7 @@ router.post('/auth/register', (req, res) => {
   };
 
   createUser(newUser);
+  publish({ type: 'user-created', adminOnly: true });
 
   const token = signToken(newUser);
   res.cookie(SESSION_COOKIE, token, sessionCookie);
@@ -139,6 +187,9 @@ router.post('/auth/login', (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
+  if (!EMAIL_PATTERN.test(normalizedEmail) || typeof password !== 'string') {
+    return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+  }
   const user = findUserByEmail(normalizedEmail);
   if (!user) {
     return res.status(401).json({ success: false, error: 'Invalid email or password.' });
@@ -200,15 +251,64 @@ router.put('/auth/preferences', requireAuth, (req: AuthenticatedRequest, res: Re
   return res.status(400).json({ success: false, error: 'Language must be "en" or "hi".' });
 });
 
-// Password reset requests intentionally return the same response whether or not
-// an account exists, preventing account enumeration. Mail delivery can be wired
-// to a provider without exposing reset tokens to the browser.
-router.post('/auth/forgot-password', (req, res) => {
-  void req.body.email;
-  return res.json({
-    success: true,
-    message: 'If that email address exists, password reset instructions will be sent shortly.',
+// Password reset has a real provider integration. Responses remain neutral to
+// avoid account enumeration; deployment must configure the documented Resend
+// credentials rather than silently pretending delivery happened.
+router.post('/auth/forgot-password', async (req, res) => {
+  const normalizedEmail = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM || !process.env.APP_URL) {
+    return res.status(503).json({ success: false, error: 'Password reset email is not configured by this deployment.' });
+  }
+  const user = EMAIL_PATTERN.test(normalizedEmail) ? findUserByEmail(normalizedEmail) : null;
+  if (user && user.isActive) {
+    const token = randomBytes(32).toString('base64url');
+    createPasswordReset({
+      id: `reset-${randomUUID()}`,
+      userId: user.id,
+      token,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+    try {
+      const resetUrl = new URL('/', process.env.APP_URL);
+      resetUrl.searchParams.set('resetToken', token);
+      await sendResetEmail(user.email, resetUrl.toString());
+    } catch (error) {
+      console.error('Password reset email delivery failed:', error);
+      return res.status(502).json({ success: false, error: 'Unable to send password reset email. Please try again later.' });
+    }
+  }
+  return res.json({ success: true, message: 'If that email address exists, password reset instructions have been sent.' });
+});
+
+router.post('/auth/reset-password', (req, res) => {
+  const { token, password, confirmPassword } = req.body;
+  if (typeof token !== 'string' || !validPassword(password) || password !== confirmPassword) {
+    return res.status(400).json({ success: false, error: 'Use a valid link and a password with at least 10 characters, uppercase, lowercase, and a number.' });
+  }
+  const reset = verifyPasswordReset(token);
+  if (!reset || !markPasswordResetUsed(token)) {
+    return res.status(400).json({ success: false, error: 'This password-reset link is invalid, expired, or has already been used.' });
+  }
+  const user = getDb().users.find((candidate) => candidate.id === reset.userId);
+  if (!user) return res.status(400).json({ success: false, error: 'This password-reset link is invalid.' });
+  user.passwordHash = bcrypt.hashSync(password, 12);
+  updateUser(user);
+  publish({ type: 'password-reset', userId: user.id });
+  return res.json({ success: true, message: 'Password updated. You can now sign in.' });
+});
+
+router.get('/events', requireAuth, (req: AuthenticatedRequest, res) => {
+  res.status(200);
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
   });
+  res.flushHeaders();
+  const unsubscribe = subscribe(res, req.user!.id, req.user!.role === 'ADMIN');
+  req.on('close', unsubscribe);
 });
 
 // ==========================================
@@ -351,8 +451,12 @@ router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Re
     }
   }
 
+  if (inProgressAttempt) {
+    return res.status(409).json({ success: false, error: 'An active attempt already exists for this exam and cannot be resumed.' });
+  }
+
   // Check attempt limit
-  const completedCount = userAttempts.filter((a) => a.status === 'SUBMITTED').length;
+  const completedCount = userAttempts.filter((a) => a.status === 'SUBMITTED' || a.status === 'EXPIRED').length;
   if (exam.settings.maxAttempts > 0 && completedCount >= exam.settings.maxAttempts) {
     return res.status(400).json({
       success: false,
@@ -395,6 +499,7 @@ router.post('/exams/:id/start', requireAuth, (req: AuthenticatedRequest, res: Re
   createAttempt(newAttempt);
   req.user!.stats.testsAttempted += 1;
   updateUser(req.user!);
+  publish({ type: 'attempt-started', userId });
 
   const sanitizedExamData = buildSanitizedExamPayload(exam, db);
 
@@ -444,6 +549,27 @@ router.post('/attempts/:id/save', requireAuth, (req: AuthenticatedRequest, res: 
   }
 
   const { questionId, selectedOptionId, status, timeSpentSeconds, currentQuestionId } = req.body;
+  const exam = db.exams.find((item) => item.id === attempt.examId);
+  const permittedQuestionIds = new Set(exam?.sections.flatMap((section) => section.questionIds) || []);
+
+  if (questionId && (typeof questionId !== 'string' || !permittedQuestionIds.has(questionId))) {
+    return res.status(400).json({ success: false, error: 'Question does not belong to this exam.' });
+  }
+  if (currentQuestionId && (typeof currentQuestionId !== 'string' || !permittedQuestionIds.has(currentQuestionId))) {
+    return res.status(400).json({ success: false, error: 'Current question does not belong to this exam.' });
+  }
+  if (status && !ATTEMPT_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, error: 'Invalid attempt status.' });
+  }
+  if (timeSpentSeconds !== undefined && (!Number.isFinite(timeSpentSeconds) || timeSpentSeconds < 0 || timeSpentSeconds > 24 * 60 * 60)) {
+    return res.status(400).json({ success: false, error: 'Invalid time spent value.' });
+  }
+  if (questionId && selectedOptionId !== undefined && selectedOptionId !== null) {
+    const question = db.questions.find((item) => item.id === questionId);
+    if (!question?.options.some((option) => option.id === selectedOptionId)) {
+      return res.status(400).json({ success: false, error: 'Selected option does not belong to this question.' });
+    }
+  }
 
   if (questionId) {
     if (!attempt.answers[questionId]) {
@@ -475,6 +601,7 @@ router.post('/attempts/:id/save', requireAuth, (req: AuthenticatedRequest, res: 
     saveAttemptAnswer(attempt.id, attempt.answers[questionId]);
   }
   updateAttemptSubmission(attempt);
+  publish({ type: 'attempt-saved', userId: attempt.userId });
 
   return res.json({
     success: true,
@@ -495,8 +622,8 @@ router.post('/attempts/:id/submit', requireAuth, (req: AuthenticatedRequest, res
     return res.status(404).json({ success: false, error: 'Attempt record not found.' });
   }
 
-  if (attempt.status === 'SUBMITTED') {
-    return res.status(400).json({ success: false, error: 'Exam is already submitted. Scores cannot be calculated twice.' });
+  if (attempt.status !== 'IN_PROGRESS') {
+    return res.status(400).json({ success: false, error: 'Exam is already finalized. Scores cannot be calculated twice.' });
   }
 
   const exam = db.exams.find((e) => e.id === attempt.examId);
@@ -504,8 +631,9 @@ router.post('/attempts/:id/submit', requireAuth, (req: AuthenticatedRequest, res
     return res.status(404).json({ success: false, error: 'Associated exam not found.' });
   }
 
-  // Run authoritative scoring
-  attempt.status = 'SUBMITTED';
+  // Run authoritative scoring. Expired attempts are scored but retain their
+  // terminal status so downstream UI can accurately describe what happened.
+  attempt.status = Date.now() > new Date(attempt.expiresAt).getTime() ? 'EXPIRED' : 'SUBMITTED';
   attempt.submittedAt = new Date().toISOString();
   scoreAttempt(attempt, exam, db);
 
@@ -523,6 +651,8 @@ router.post('/attempts/:id/submit', requireAuth, (req: AuthenticatedRequest, res
 
   updateAttemptSubmission(attempt);
   updateUser(user);
+  publish({ type: 'attempt-submitted', userId: user.id });
+  publish({ type: 'leaderboard-updated', public: true });
 
   return res.json({
     success: true,
@@ -563,7 +693,7 @@ router.get('/attempts/:id/result', requireAuth, (req: AuthenticatedRequest, res:
 
   // Calculate rank and percentile
   const allExamAttempts = db.attempts
-    .filter((a) => a.examId === exam.id && a.status === 'SUBMITTED')
+    .filter((a) => a.examId === exam.id && (a.status === 'SUBMITTED' || a.status === 'EXPIRED'))
     .sort((a, b) => (b.score || 0) - (a.score || 0));
 
   const rank = allExamAttempts.findIndex((a) => a.id === attempt.id) + 1;
@@ -690,7 +820,7 @@ router.get('/attempts/history', requireAuth, (req: AuthenticatedRequest, res: Re
   const userId = req.user!.id;
 
   const history = db.attempts
-    .filter((a) => a.userId === userId && a.status === 'SUBMITTED')
+    .filter((a) => a.userId === userId && (a.status === 'SUBMITTED' || a.status === 'EXPIRED'))
     .sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime())
     .map((a) => {
       const exam = db.exams.find((e) => e.id === a.examId);
@@ -717,7 +847,7 @@ router.get('/student/performance', requireAuth, (req: AuthenticatedRequest, res:
   const db = getDb();
   const userId = req.user!.id;
 
-  const userAttempts = db.attempts.filter((a) => a.userId === userId && a.status === 'SUBMITTED');
+  const userAttempts = db.attempts.filter((a) => a.userId === userId && (a.status === 'SUBMITTED' || a.status === 'EXPIRED'));
 
   // Topic-wise accuracy calculation
   const topicStats: Record<string, { total: number; correct: number; topicId: string; nameEn: string; nameHi: string }> = {};
@@ -800,7 +930,9 @@ router.get('/planner', requireAuth, (req: AuthenticatedRequest, res: Response) =
 // Planner Tasks CRUD
 router.post('/planner/tasks', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { title, dueDate, priority } = req.body;
-  if (!title) return res.status(400).json({ success: false, error: 'Task title is required.' });
+  if (typeof title !== 'string' || !title.trim() || title.trim().length > 250) return res.status(400).json({ success: false, error: 'Task title must contain 1–250 characters.' });
+  if (dueDate !== undefined && !validDate(dueDate)) return res.status(400).json({ success: false, error: 'Due date must use YYYY-MM-DD.' });
+  if (priority !== undefined && !['LOW', 'MEDIUM', 'HIGH'].includes(priority)) return res.status(400).json({ success: false, error: 'Invalid task priority.' });
 
   const newTask: StudentTask = {
     id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -813,11 +945,15 @@ router.post('/planner/tasks', requireAuth, (req: AuthenticatedRequest, res: Resp
   };
 
   saveStudentTask(newTask);
+  publish({ type: 'planner-updated', userId: newTask.userId });
   return res.status(201).json({ success: true, task: newTask });
 });
 
 router.put('/planner/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { isCompleted, title, dueDate, priority } = req.body;
+  if (title !== undefined && (typeof title !== 'string' || !title.trim() || title.trim().length > 250)) return res.status(400).json({ success: false, error: 'Task title must contain 1–250 characters.' });
+  if (dueDate !== undefined && dueDate !== null && !validDate(dueDate)) return res.status(400).json({ success: false, error: 'Due date must use YYYY-MM-DD.' });
+  if (priority !== undefined && !['LOW', 'MEDIUM', 'HIGH'].includes(priority)) return res.status(400).json({ success: false, error: 'Invalid task priority.' });
   const ok = updateStudentTask(req.params.id, req.user!.id, {
     isCompleted: isCompleted !== undefined ? Boolean(isCompleted) : undefined,
     title: title ? String(title).trim() : undefined,
@@ -826,19 +962,23 @@ router.put('/planner/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: R
   });
 
   if (!ok) return res.status(404).json({ success: false, error: 'Task not found.' });
+  publish({ type: 'planner-updated', userId: req.user!.id });
   return res.json({ success: true });
 });
 
 router.delete('/planner/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const ok = deleteStudentTask(req.params.id, req.user!.id);
   if (!ok) return res.status(404).json({ success: false, error: 'Task not found.' });
+  publish({ type: 'planner-updated', userId: req.user!.id });
   return res.json({ success: true });
 });
 
 // Sticky Notes CRUD
 router.post('/planner/stickies', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { content, color, x, y } = req.body;
-  if (!content) return res.status(400).json({ success: false, error: 'Sticky content is required.' });
+  if (typeof content !== 'string' || !content.trim() || content.trim().length > 2_000) return res.status(400).json({ success: false, error: 'Sticky content must contain 1–2000 characters.' });
+  if (color !== undefined && !['yellow', 'mint', 'lime', 'coral', 'blue'].includes(color)) return res.status(400).json({ success: false, error: 'Invalid sticky-note color.' });
+  if ((x !== undefined && (!Number.isFinite(x) || x < 0 || x > 10_000)) || (y !== undefined && (!Number.isFinite(y) || y < 0 || y > 10_000))) return res.status(400).json({ success: false, error: 'Invalid sticky-note position.' });
 
   const newSticky: StudentStickyNote = {
     id: `stk-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -851,11 +991,14 @@ router.post('/planner/stickies', requireAuth, (req: AuthenticatedRequest, res: R
   };
 
   saveStickyNote(newSticky);
+  publish({ type: 'planner-updated', userId: newSticky.userId });
   return res.status(201).json({ success: true, stickyNote: newSticky });
 });
 
 router.put('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { content, color, x, y } = req.body;
+  if (content !== undefined && (typeof content !== 'string' || !content.trim() || content.trim().length > 2_000)) return res.status(400).json({ success: false, error: 'Sticky content must contain 1–2000 characters.' });
+  if (color !== undefined && !['yellow', 'mint', 'lime', 'coral', 'blue'].includes(color)) return res.status(400).json({ success: false, error: 'Invalid sticky-note color.' });
   const ok = updateStickyNote(req.params.id, req.user!.id, {
     content: content !== undefined ? String(content) : undefined,
     color,
@@ -864,18 +1007,24 @@ router.put('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, res
   });
 
   if (!ok) return res.status(404).json({ success: false, error: 'Sticky note not found.' });
+  publish({ type: 'planner-updated', userId: req.user!.id });
   return res.json({ success: true });
 });
 
 router.delete('/planner/stickies/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const ok = deleteStickyNote(req.params.id, req.user!.id);
-  return res.json({ success: ok });
+  if (!ok) return res.status(404).json({ success: false, error: 'Sticky note not found.' });
+  publish({ type: 'planner-updated', userId: req.user!.id });
+  return res.json({ success: true });
 });
 
 // Update Goal
 router.put('/planner/goals', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.id;
   const { targetExamEn, targetExamHi, targetScore, targetDate, dailyStudyHours, notes } = req.body;
+  if (targetDate !== undefined && !validDate(targetDate)) return res.status(400).json({ success: false, error: 'Target date must use YYYY-MM-DD.' });
+  if (targetScore !== undefined && (!Number.isFinite(Number(targetScore)) || Number(targetScore) < 0 || Number(targetScore) > 10_000)) return res.status(400).json({ success: false, error: 'Target score is invalid.' });
+  if (dailyStudyHours !== undefined && (!Number.isFinite(Number(dailyStudyHours)) || Number(dailyStudyHours) <= 0 || Number(dailyStudyHours) > 24)) return res.status(400).json({ success: false, error: 'Daily study hours must be between 0 and 24.' });
 
   const goal: StudentGoal = {
     id: `goal-${userId}`,
@@ -890,6 +1039,7 @@ router.put('/planner/goals', requireAuth, (req: AuthenticatedRequest, res: Respo
   };
 
   saveStudentGoal(goal);
+  publish({ type: 'planner-updated', userId });
   return res.json({ success: true, goal });
 });
 
@@ -1136,6 +1286,8 @@ router.put('/admin/users/:id/toggle-status', requireAdmin, (req, res) => {
 
   user.isActive = !user.isActive;
   updateUser(user);
+  publish({ type: 'user-status-updated', userId: user.id });
+  publish({ type: 'user-status-updated', adminOnly: true });
   return res.json({ success: true, isActive: user.isActive });
 });
 
@@ -1164,6 +1316,7 @@ router.post('/admin/categories', requireAdmin, (req, res) => {
   };
 
   createCategory(newCat);
+  publish({ type: 'taxonomy-updated', adminOnly: true });
   return res.status(201).json({ success: true, category: newCat });
 });
 
@@ -1176,6 +1329,7 @@ router.delete('/admin/categories/:id', requireAdmin, (req, res) => {
   if (!deleteCategory(req.params.id)) {
     return res.status(404).json({ success: false, error: 'Category not found.' });
   }
+  publish({ type: 'taxonomy-updated', adminOnly: true });
   return res.json({ success: true });
 });
 
@@ -1217,14 +1371,25 @@ router.post('/admin/questions', requireAdmin, (req, res) => {
     explanationHi,
   } = req.body;
 
-  if (!textEn || !options || options.length < 2 || !correctOptionId) {
+  if (typeof textEn !== 'string' || !textEn.trim() || !Array.isArray(options) || options.length < 2 || options.length > 8 || !correctOptionId) {
     return res.status(400).json({ success: false, error: 'Question text, at least two options, and correct answer are required.' });
   }
 
   const db = getDb();
+  const resolvedSubjectId = subjectId || 'sub-reasoning';
+  if (!db.subjects.some((subject) => subject.id === resolvedSubjectId)) return res.status(400).json({ success: false, error: 'Select a valid subject.' });
+  if (topicId && !db.topics.some((topic) => topic.id === topicId && topic.subjectId === resolvedSubjectId)) return res.status(400).json({ success: false, error: 'Select a topic belonging to the selected subject.' });
+  if (!['EASY', 'MEDIUM', 'HARD'].includes(difficulty || 'MEDIUM')) return res.status(400).json({ success: false, error: 'Invalid difficulty.' });
+  if (!Number.isFinite(Number(positiveMarks)) || Number(positiveMarks) <= 0 || Number(positiveMarks) > 100 || !Number.isFinite(Number(negativeMarks)) || Number(negativeMarks) < 0 || Number(negativeMarks) > 100) return res.status(400).json({ success: false, error: 'Marks must be valid positive/negative values.' });
+  const normalizedOptions = options.map((opt: any, idx: number) => ({
+    id: typeof opt.id === 'string' && opt.id ? opt.id : `opt-${randomUUID()}-${idx}`,
+    textEn: typeof opt.textEn === 'string' ? opt.textEn.trim() : '',
+    textHi: typeof opt.textHi === 'string' ? opt.textHi.trim() : (typeof opt.textEn === 'string' ? opt.textEn.trim() : ''),
+  }));
+  if (normalizedOptions.some((option) => !option.textEn) || !normalizedOptions.some((option) => option.id === correctOptionId)) return res.status(400).json({ success: false, error: 'Every option needs text and the correct option must be one of them.' });
   const newQ: Question = {
-    id: `q-${Date.now()}`,
-    subjectId: subjectId || 'sub-reasoning',
+    id: `q-${randomUUID()}`,
+    subjectId: resolvedSubjectId,
     topicId,
     difficulty: difficulty || 'MEDIUM',
     textEn: String(textEn).trim(),
@@ -1232,11 +1397,7 @@ router.post('/admin/questions', requireAdmin, (req, res) => {
     imageUrl,
     positiveMarks: Number(positiveMarks) || 2.0,
     negativeMarks: Number(negativeMarks) || 0.5,
-    options: options.map((opt: any, idx: number) => ({
-      id: opt.id || `opt-${Date.now()}-${idx}`,
-      textEn: opt.textEn || '',
-      textHi: opt.textHi || opt.textEn || '',
-    })),
+    options: normalizedOptions,
     correctOptionId,
     explanationEn: explanationEn || '',
     explanationHi: explanationHi || explanationEn || '',
@@ -1244,6 +1405,7 @@ router.post('/admin/questions', requireAdmin, (req, res) => {
   };
 
   createQuestion(newQ);
+  publish({ type: 'question-bank-updated', adminOnly: true });
   return res.status(201).json({ success: true, question: newQ });
 });
 
@@ -1258,6 +1420,7 @@ router.delete('/admin/questions/:id', requireAdmin, (req, res) => {
   if (!deleteQuestion(req.params.id)) {
     return res.status(404).json({ success: false, error: 'Question not found.' });
   }
+  publish({ type: 'question-bank-updated', adminOnly: true });
   return res.json({ success: true });
 });
 
@@ -1282,14 +1445,16 @@ router.post('/admin/exams', requireAdmin, (req, res) => {
     settings,
   } = req.body;
 
-  if (!titleEn || !durationMinutes || !totalMarks) {
+  if (typeof titleEn !== 'string' || !titleEn.trim() || !Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) <= 0 || !Number.isFinite(Number(totalMarks)) || Number(totalMarks) <= 0) {
     return res.status(400).json({ success: false, error: 'Title, duration, and total marks are required.' });
   }
 
   const db = getDb();
+  const resolvedCategoryId = categoryId || db.categories[0]?.id;
+  if (!resolvedCategoryId || !db.categories.some((category) => category.id === resolvedCategoryId)) return res.status(400).json({ success: false, error: 'Select a valid category.' });
   const newExam: Exam = {
-    id: `exam-${Date.now()}`,
-    categoryId: categoryId || db.categories[0]?.id || 'cat-ssc',
+    id: `exam-${randomUUID()}`,
+    categoryId: resolvedCategoryId,
     titleEn: String(titleEn).trim(),
     titleHi: String(titleHi || titleEn).trim(),
     descriptionEn: descriptionEn || '',
@@ -1313,6 +1478,8 @@ router.post('/admin/exams', requireAdmin, (req, res) => {
   };
 
   createExam(newExam);
+  publish({ type: 'exam-catalog-updated', public: true });
+  publish({ type: 'exam-catalog-updated', adminOnly: true });
   return res.status(201).json({ success: true, exam: newExam });
 });
 
@@ -1349,6 +1516,8 @@ router.put('/admin/exams/:id', requireAdmin, (req, res) => {
   exam.updatedAt = new Date().toISOString();
 
   updateExam(exam);
+  publish({ type: 'exam-catalog-updated', public: exam.isPublished });
+  publish({ type: 'exam-catalog-updated', adminOnly: true });
   return res.json({ success: true, exam });
 });
 
@@ -1359,7 +1528,7 @@ router.post('/admin/exams/:id/duplicate', requireAdmin, (req, res) => {
 
   const duplicateExam: Exam = {
     ...JSON.parse(JSON.stringify(sourceExam)),
-    id: `exam-dup-${Date.now()}`,
+    id: `exam-dup-${randomUUID()}`,
     titleEn: `${sourceExam.titleEn} (Copy)`,
     titleHi: `${sourceExam.titleHi} (प्रतिलिपि)`,
     isPublished: false, // Must be drafted
@@ -1372,6 +1541,7 @@ router.post('/admin/exams/:id/duplicate', requireAdmin, (req, res) => {
   }));
 
   createExam(duplicateExam);
+  publish({ type: 'exam-catalog-updated', adminOnly: true });
   return res.status(201).json({ success: true, exam: duplicateExam });
 });
 
@@ -1389,10 +1559,16 @@ router.post('/admin/exams/:id/publish', requireAdmin, (req, res) => {
   if (totalQuestions === 0) {
     return res.status(400).json({ success: false, error: 'Exam must contain questions before publishing.' });
   }
+  const knownQuestionIds = new Set(db.questions.map((question) => question.id));
+  if (exam.sections.some((section) => section.questionIds.some((questionId) => !knownQuestionIds.has(questionId)))) {
+    return res.status(400).json({ success: false, error: 'Exam contains deleted or unknown questions.' });
+  }
 
   exam.isPublished = true;
   exam.updatedAt = new Date().toISOString();
   updateExam(exam);
+  publish({ type: 'exam-published', public: true });
+  publish({ type: 'exam-published', adminOnly: true });
   return res.json({ success: true, isPublished: true });
 });
 
@@ -1404,6 +1580,8 @@ router.post('/admin/exams/:id/unpublish', requireAdmin, (req, res) => {
   exam.isPublished = false;
   exam.updatedAt = new Date().toISOString();
   updateExam(exam);
+  publish({ type: 'exam-unpublished', public: true });
+  publish({ type: 'exam-unpublished', adminOnly: true });
   return res.json({ success: true, isPublished: false });
 });
 
@@ -1604,23 +1782,29 @@ router.post('/admin/imports/commit', requireAdmin, (req, res) => {
 // Study Materials Admin CRUD
 router.post('/admin/materials', requireAdmin, (req, res) => {
   const { titleEn, titleHi, descriptionEn, descriptionHi, categoryId, pdfUrl, pagesCount, fileSizeMb } = req.body;
-  if (!titleEn) return res.status(400).json({ success: false, error: 'Title is required.' });
+  if (typeof titleEn !== 'string' || !titleEn.trim() || typeof pdfUrl !== 'string' || !pdfUrl.trim()) return res.status(400).json({ success: false, error: 'Title and an accessible PDF URL are required.' });
+  const isLocalPdf = pdfUrl.startsWith('/') && pdfUrl.toLowerCase().endsWith('.pdf');
+  const isRemotePdf = /^https:\/\//i.test(pdfUrl) && pdfUrl.split('?')[0].toLowerCase().endsWith('.pdf');
+  if (!isLocalPdf && !isRemotePdf) return res.status(400).json({ success: false, error: 'PDF URL must be an HTTPS URL or an application-relative .pdf path.' });
+  if (!Number.isInteger(Number(pagesCount)) || Number(pagesCount) <= 0 || Number(pagesCount) > 10_000 || !Number.isFinite(Number(fileSizeMb)) || Number(fileSizeMb) <= 0 || Number(fileSizeMb) > 10_000) return res.status(400).json({ success: false, error: 'Page count and file size must be positive values.' });
 
   const newMat = {
-    id: `mat-${Date.now()}`,
+    id: `mat-${randomUUID()}`,
     titleEn: String(titleEn).trim(),
     titleHi: String(titleHi || titleEn).trim(),
     descriptionEn: descriptionEn || '',
     descriptionHi: descriptionHi || descriptionEn || '',
     categoryId: categoryId || 'cat-ssc',
-    pdfUrl: pdfUrl || '/materials/sample.pdf',
-    pagesCount: Number(pagesCount) || 20,
-    fileSizeMb: Number(fileSizeMb) || 2.5,
+    pdfUrl: pdfUrl.trim(),
+    pagesCount: Number(pagesCount),
+    fileSizeMb: Number(fileSizeMb),
     isPublished: true,
     createdAt: new Date().toISOString(),
   };
 
   createStudyMaterial(newMat);
+  publish({ type: 'materials-updated', public: true });
+  publish({ type: 'materials-updated', adminOnly: true });
   return res.status(201).json({ success: true, material: newMat });
 });
 
@@ -1628,25 +1812,32 @@ router.delete('/admin/materials/:id', requireAdmin, (req, res) => {
   if (!deleteStudyMaterial(req.params.id)) {
     return res.status(404).json({ success: false, error: 'Material not found.' });
   }
+  publish({ type: 'materials-updated', public: true });
+  publish({ type: 'materials-updated', adminOnly: true });
   return res.json({ success: true });
 });
 
 // Admin Calendar Events
 router.post('/admin/events', requireAdmin, (req, res) => {
-  const { titleEn, titleHi, descriptionEn, descriptionHi, date, type } = req.body;
-  if (!titleEn || !date) return res.status(400).json({ success: false, error: 'Title and date are required.' });
+  const { titleEn, titleHi, descriptionEn, descriptionHi, date, type, url } = req.body;
+  if (typeof titleEn !== 'string' || !titleEn.trim() || !validDate(date)) return res.status(400).json({ success: false, error: 'A title and a valid date are required.' });
+  if (type !== undefined && !['EXAM', 'ADMIT_CARD', 'RESULT', 'NOTIFICATION'].includes(type)) return res.status(400).json({ success: false, error: 'Invalid event type.' });
+  if (url !== undefined && url !== '' && !/^https:\/\//i.test(url)) return res.status(400).json({ success: false, error: 'Event URL must use HTTPS.' });
 
   const newEvt = {
-    id: `evt-${Date.now()}`,
+    id: `evt-${randomUUID()}`,
     titleEn: String(titleEn).trim(),
     titleHi: String(titleHi || titleEn).trim(),
     descriptionEn,
     descriptionHi,
     date,
     type: type || 'EXAM',
+    url: url || undefined,
   };
 
   createCalendarEvent(newEvt);
+  publish({ type: 'calendar-updated', public: true });
+  publish({ type: 'calendar-updated', adminOnly: true });
   return res.status(201).json({ success: true, event: newEvt });
 });
 
@@ -1654,6 +1845,8 @@ router.delete('/admin/events/:id', requireAdmin, (req, res) => {
   if (!deleteCalendarEvent(req.params.id)) {
     return res.status(404).json({ success: false, error: 'Event not found.' });
   }
+  publish({ type: 'calendar-updated', public: true });
+  publish({ type: 'calendar-updated', adminOnly: true });
   return res.json({ success: true });
 });
 

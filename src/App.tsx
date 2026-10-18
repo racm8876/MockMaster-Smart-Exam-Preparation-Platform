@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/common/Header';
 import { Sidebar, ActiveTab } from './components/common/Sidebar';
@@ -33,13 +33,29 @@ function MainAppContent() {
 
   // Auth modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register' | 'reset'>('login');
+  const [resetToken, setResetToken] = useState<string | null>(() => new URLSearchParams(window.location.search).get('resetToken'));
+  const [realtimeVersion, setRealtimeVersion] = useState(0);
 
   // Examination flow states
   const [instructionsExamId, setInstructionsExamId] = useState<string | null>(null);
   const [activeExamId, setActiveExamId] = useState<string | null>(null);
   const [viewResultAttemptId, setViewResultAttemptId] = useState<string | null>(null);
   const [viewReviewAttemptId, setViewReviewAttemptId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (resetToken && !user) {
+      setAuthInitialTab('reset');
+      setAuthModalOpen(true);
+    }
+  }, [resetToken, user]);
+
+  useEffect(() => {
+    if (!user || activeExamId) return;
+    const stream = new EventSource('/api/events');
+    stream.addEventListener('data-change', () => setRealtimeVersion((version) => version + 1));
+    return () => stream.close();
+  }, [user?.id, activeExamId]);
 
   if (isLoading) {
     return (
@@ -73,7 +89,7 @@ function MainAppContent() {
   };
 
   const handleStartExamFlow = (examId: string) => {
-    // If not logged in, prompt sign in or sign in with demo
+    // Authentication is required before a server-authoritative attempt begins.
     if (!user) {
       setAuthInitialTab('login');
       setAuthModalOpen(true);
@@ -151,7 +167,7 @@ function MainAppContent() {
             />
           ) : (
             /* Authenticated App Views */
-            <>
+            <div key={`${currentTab}-${realtimeVersion}`}>
               {/* Student Views */}
               {currentTab === 'student-dashboard' && (
                 <StudentDashboard
@@ -185,7 +201,7 @@ function MainAppContent() {
               {currentTab === 'admin-import' && <AdminPaperImport />}
               {currentTab === 'admin-students' && <AdminStudentsPage />}
               {currentTab === 'admin-resources' && <AdminMaterialsAndCalendar />}
-            </>
+            </div>
           )}
         </main>
       </div>
@@ -218,7 +234,16 @@ function MainAppContent() {
       <AuthModal
         isOpen={authModalOpen}
         initialTab={authInitialTab}
-        onClose={() => setAuthModalOpen(false)}
+        resetToken={resetToken}
+        onClose={() => {
+          setAuthModalOpen(false);
+          if (resetToken) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('resetToken');
+            window.history.replaceState({}, '', url);
+            setResetToken(null);
+          }
+        }}
       />
     </div>
   );

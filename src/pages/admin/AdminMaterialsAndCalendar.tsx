@@ -14,6 +14,7 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
   const [matTitleEn, setMatTitleEn] = useState('');
   const [matTitleHi, setMatTitleHi] = useState('');
   const [matDescEn, setMatDescEn] = useState('');
+  const [matPdfUrl, setMatPdfUrl] = useState('');
   const [matPages, setMatPages] = useState(24);
   const [matSize, setMatSize] = useState(2.8);
 
@@ -59,6 +60,7 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
           titleEn: matTitleEn,
           titleHi: matTitleHi || matTitleEn,
           descriptionEn: matDescEn,
+          pdfUrl: matPdfUrl,
           pagesCount: matPages,
           fileSizeMb: matSize,
         }),
@@ -68,6 +70,7 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
         setMaterials((prev) => [...prev, data.material]);
         setShowMatModal(false);
         setMatTitleEn('');
+        setMatPdfUrl('');
       }
     } catch {}
   };
@@ -259,6 +262,18 @@ export const AdminMaterialsAndCalendar: React.FC = () => {
                   placeholder="e.g. 100 Golden Rules of Reasoning..."
                   className="w-full p-2.5 rounded-xl border border-[#cfcbbe]"
                 />
+              </div>
+              <div>
+                <label className="font-bold block mb-1">PDF URL</label>
+                <input
+                  type="url"
+                  required
+                  value={matPdfUrl}
+                  onChange={(e) => setMatPdfUrl(e.target.value)}
+                  placeholder="https://cdn.example.com/guide.pdf"
+                  className="w-full p-2.5 rounded-xl border border-[#cfcbbe]"
+                />
+                <p className="mt-1 text-[10px] text-[#52635a]">Use an HTTPS .pdf URL or an application-relative PDF path.</p>
               </div>
               <div>
                 <label className="font-bold block mb-1">Description</label>

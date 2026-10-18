@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# SQLite write-ahead-log runtime files.
+data/*.sqlite-wal
+data/*.sqlite-shm

@@ -13,34 +13,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-const SAMPLE_TEXT_PAPER = `Q1. Which constitutional amendment lowered the voting age in India from 21 to 18 years?
-(A) 42nd Amendment Act
-(B) 44th Amendment Act
-(C) 61st Amendment Act
-(D) 73rd Amendment Act
-Ans: C
-Explanation: The 61st Constitutional Amendment Act, 1988 amended Article 326 to lower the voting age from 21 to 18 years.
-
-Q2. If a sum doubles itself in 5 years at simple interest, in how many years will it become 4 times of itself?
-(A) 10 years
-(B) 15 years
-(C) 20 years
-(D) 25 years
-Ans: B
-Explanation: If sum doubles in 5 years, interest = P in 5 years. For becoming 4 times, interest needed = 3P. Time required = 3 * 5 = 15 years.
-
-Q3. Choose the correctly spelt word:
-(A) Accomodate
-(B) Accommodate
-(C) Acomodate
-(D) Accomadate
-Ans: B
-Explanation: The correct spelling is 'Accommodate' with double 'c' and double 'm'.`;
-
 export const AdminPaperImport: React.FC = () => {
   const { token, language } = useAuth();
   const [format, setFormat] = useState<'text' | 'json'>('text');
-  const [rawText, setRawText] = useState(SAMPLE_TEXT_PAPER);
+  const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestionDraft[]>([]);
   const [isCommitting, setIsCommitting] = useState(false);
@@ -92,7 +68,6 @@ export const AdminPaperImport: React.FC = () => {
         },
         body: JSON.stringify({
           questions: parsedQuestions,
-          targetExamId: 'exam-ssc-cgl-01',
         }),
       });
 
@@ -161,12 +136,6 @@ export const AdminPaperImport: React.FC = () => {
             </button>
           </div>
 
-          <button
-            onClick={() => setRawText(SAMPLE_TEXT_PAPER)}
-            className="text-xs font-bold text-[#173f35] hover:underline"
-          >
-            Insert SSC CGL Sample Text
-          </button>
         </div>
 
         <textarea
@@ -211,7 +180,7 @@ export const AdminPaperImport: React.FC = () => {
               className="px-6 py-2.5 rounded-xl bg-[#ef765f] hover:bg-[#dc583f] text-white font-black text-xs sm:text-sm shadow-md transition-all flex items-center gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isCommitting ? 'Committing...' : 'Confirm & Commit to Draft Exam'}</span>
+              <span>{isCommitting ? 'Committing...' : 'Confirm & Commit to Question Bank'}</span>
             </button>
           </div>
 

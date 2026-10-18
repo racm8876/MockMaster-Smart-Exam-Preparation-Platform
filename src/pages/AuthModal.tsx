@@ -4,17 +4,19 @@ import { X, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2 } from 'luci
 
 interface AuthModalProps {
   isOpen: boolean;
-  initialTab?: 'login' | 'register';
+  initialTab?: 'login' | 'register' | 'reset';
+  resetToken?: string | null;
   onClose: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialTab = 'login',
+  resetToken,
   onClose,
 }) => {
   const { login, register, language } = useAuth();
-  const [tab, setTab] = useState<'login' | 'register' | 'forgot'>(initialTab);
+  const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'reset'>(initialTab);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,6 +26,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    setTab(initialTab);
+    setError(null);
+    setSuccessMessage(null);
+  }, [initialTab, isOpen]);
 
   if (!isOpen) return null;
 
@@ -55,7 +63,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           body: JSON.stringify({ email }),
         });
         const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Unable to request a password reset.');
         setSuccessMessage(data.message || 'Password reset link sent to your email.');
+      } else if (tab === 'reset') {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: resetToken, password, confirmPassword }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Unable to reset password.');
+        setSuccessMessage(data.message || 'Password updated. You can now sign in.');
+        setPassword('');
+        setConfirmPassword('');
+        setTab('login');
       }
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
@@ -78,6 +99,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {tab === 'login' && (language === 'hi' ? 'लॉग इन करें' : 'Aspirant Log In')}
                 {tab === 'register' && (language === 'hi' ? 'नया छात्र खाता बनाएं' : 'Create Student Account')}
                 {tab === 'forgot' && (language === 'hi' ? 'पासवर्ड रीसेट करें' : 'Reset Password')}
+                {tab === 'reset' && 'Choose a new password'}
               </h3>
               <p className="text-xs text-[#b8e6ce] mt-0.5">
                 {language === 'hi'
@@ -161,7 +183,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          <div>
+          {tab !== 'reset' && <div>
             <label className="block text-xs font-bold text-[#17241f] mb-1">
               {language === 'hi' ? 'ईमेल पता' : 'Email Address'}
             </label>
@@ -176,7 +198,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-[#cfcbbe] focus:outline-none focus:ring-2 focus:ring-[#173f35]"
               />
             </div>
-          </div>
+          </div>}
 
           {tab !== 'forgot' && (
             <div>
@@ -208,7 +230,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {tab === 'register' && (
+          {(tab === 'register' || tab === 'reset') && (
             <div>
               <label className="block text-xs font-bold text-[#17241f] mb-1">
                 {language === 'hi' ? 'पासवर्ड की पुष्टि करें' : 'Confirm Password'}
@@ -240,32 +262,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   {tab === 'login' && (language === 'hi' ? 'लॉग इन करें' : 'Sign In')}
                   {tab === 'register' && (language === 'hi' ? 'पंजीकरण पूरा करें' : 'Create Student Account')}
                   {tab === 'forgot' && (language === 'hi' ? 'रीसेट लिंक भेजें' : 'Send Reset Link')}
+                  {tab === 'reset' && 'Update Password'}
                 </span>
               </>
             )}
           </button>
 
-          <div className="hidden" aria-hidden="true">
-            <div className="text-[11px] font-bold text-[#52635a] uppercase tracking-wider text-center mb-2">
-              ⚡ Quick One-Click Demo Logins
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled
-                className="py-1.5 px-2.5 rounded-lg border border-[#cfcbbe] bg-[#f6f5ee] hover:bg-[#dff4e9] text-[11px] font-semibold text-[#173f35] text-center transition-colors"
-              >
-                Student (Aarav)
-              </button>
-              <button
-                type="button"
-                disabled
-                className="py-1.5 px-2.5 rounded-lg border border-[#cfcbbe] bg-[#f6f5ee] hover:bg-[#ffece8] text-[11px] font-semibold text-[#ef765f] text-center transition-colors flex items-center justify-center gap-1"
-              >
-                <span>Admin Console</span>
-              </button>
-            </div>
-          </div>
         </form>
       </div>
     </div>

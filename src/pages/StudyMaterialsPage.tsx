@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { StudyMaterial } from '../types';
-import { BookOpen, Download, Eye, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Download, Eye, X } from 'lucide-react';
 
 export const StudyMaterialsPage: React.FC = () => {
   const { language } = useAuth();
   const [materials, setMaterials] = useState<StudyMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeMaterial, setActiveMaterial] = useState<StudyMaterial | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function loadMaterials() {
@@ -78,20 +77,22 @@ export const StudyMaterialsPage: React.FC = () => {
                   <button
                     onClick={() => {
                       setActiveMaterial(mat);
-                      setCurrentPage(1);
                     }}
                     className="px-3 py-1.5 rounded-lg bg-[#173f35] hover:bg-[#235447] text-[#c9ed71] font-bold text-xs flex items-center gap-1 transition-colors"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>View PDF</span>
                   </button>
-                  <button
-                    onClick={() => alert(`Downloading verified copy of "${mat.titleEn}"...`)}
+                  <a
+                    href={mat.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
                     className="p-1.5 rounded-lg border border-[#cfcbbe] hover:bg-[#f6f5ee] text-[#173f35] transition-colors"
                     title="Download PDF"
                   >
                     <Download className="w-4 h-4" />
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -125,66 +126,17 @@ export const StudyMaterialsPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex-1 bg-[#2e3835] p-4 sm:p-8 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white rounded-xl shadow-2xl p-8 max-w-xl w-full min-h-[460px] flex flex-col justify-between text-[#17241f] border border-gray-200">
-                <div className="space-y-4">
-                  <div className="border-b pb-3 flex justify-between items-center text-xs text-[#52635a]">
-                    <span className="font-bold text-[#173f35]">MockMaster Academic Library</span>
-                    <span>Page {currentPage} of {activeMaterial.pagesCount}</span>
-                  </div>
-
-                  <h2 className="text-lg font-bold font-display text-[#173f35]">
-                    {language === 'hi' ? activeMaterial.titleHi : activeMaterial.titleEn}
-                  </h2>
-
-                  <div className="text-xs text-[#52635a] leading-relaxed space-y-3">
-                    <p className="font-semibold text-[#17241f]">
-                      Chapter {currentPage}: Foundational Principles & Formula Reference Sheet
-                    </p>
-                    <p>
-                      1. Speed & Distance conversion: Multiply by 5/18 to convert km/h to m/s. Multiply by 18/5 for m/s to km/h.
-                    </p>
-                    <p>
-                      2. Simple Interest relation: SI = (P * R * T) / 100. Total Amount A = P + SI.
-                    </p>
-                    <p>
-                      3. Algebraic identity: (a+b)^2 = a^2 + 2ab + b^2, and (x + 1/x)^2 = x^2 + 1/x^2 + 2.
-                    </p>
-                    <p>
-                      4. Constitutional Articles: Article 32 (Constitutional Remedies), Article 21 (Life & Liberty), Article 14 (Equality before Law).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t text-[10px] text-[#52635a] flex justify-between">
-                  <span>Authorized for student use only</span>
-                  <span>MockMaster 2026</span>
-                </div>
-              </div>
+            <div className="flex-1 bg-[#2e3835] p-2 sm:p-4">
+              <iframe
+                src={activeMaterial.pdfUrl}
+                title={activeMaterial.titleEn}
+                className="w-full h-full rounded-lg bg-white"
+              />
             </div>
 
             <div className="h-14 bg-white border-t border-[#eceae1] px-6 flex items-center justify-between shrink-0">
-              <button
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="px-3 py-1.5 rounded-lg border border-[#cfcbbe] text-xs font-bold disabled:opacity-40 flex items-center gap-1"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>Prev Page</span>
-              </button>
-
-              <span className="text-xs font-bold text-[#173f35]">
-                Page {currentPage} / {activeMaterial.pagesCount}
-              </span>
-
-              <button
-                disabled={currentPage >= activeMaterial.pagesCount}
-                onClick={() => setCurrentPage((p) => Math.min(activeMaterial.pagesCount, p + 1))}
-                className="px-3 py-1.5 rounded-lg border border-[#cfcbbe] text-xs font-bold disabled:opacity-40 flex items-center gap-1"
-              >
-                <span>Next Page</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
+              <span className="text-xs text-[#52635a]">{activeMaterial.pagesCount} pages · {activeMaterial.fileSizeMb} MB</span>
+              <a href={activeMaterial.pdfUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg bg-[#173f35] text-[#c9ed71] text-xs font-bold">Open in new tab</a>
             </div>
           </div>
         </div>

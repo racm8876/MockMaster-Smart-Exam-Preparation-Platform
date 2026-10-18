@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import {
@@ -49,8 +49,29 @@ export function getSqliteDb(): DatabaseSync {
 
   initTables(sqliteDb);
   seedIfEmpty(sqliteDb);
+  ensureConfiguredAdmin(sqliteDb);
 
   return sqliteDb;
+}
+
+// Deployment may begin from an existing data file (for example a restored
+// backup), so first-admin provisioning cannot be tied only to content seeding.
+// It is idempotent and only acts when explicit environment credentials exist.
+function ensureConfiguredAdmin(db: DatabaseSync) {
+  const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  if (!email || !password || !/^\S+@\S+\.\S+$/.test(email) || password.length < 10) return;
+  const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email) as { id: string } | undefined;
+  if (existing) return;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO users (
+      id, name, email, password_hash, role, is_active, is_verified,
+      preferred_language, points, streak_days, tests_attempted, tests_completed,
+      avg_score, avg_accuracy, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'ADMIN', 1, 1, 'en', 0, 1, 0, 0, 0, 0, ?, ?)
+  `).run(`user-admin-${randomBytes(12).toString('hex')}`, 'Administrator', email, bcrypt.hashSync(password, 12), now, now);
+  console.log(`Provisioned configured administrator account for ${email}.`);
 }
 
 function initTables(db: DatabaseSync) {
@@ -2014,8 +2035,7 @@ export function updateStudentTask(id: string, userId: string, updates: Partial<S
 
 export function deleteStudentTask(id: string, userId: string): boolean {
   const db = getSqliteDb();
-  db.prepare('DELETE FROM student_tasks WHERE id = ? AND user_id = ?').run(id, userId);
-  return true;
+  return db.prepare('DELETE FROM student_tasks WHERE id = ? AND user_id = ?').run(id, userId).changes > 0;
 }
 
 export function saveStickyNote(s: StudentStickyNote): StudentStickyNote {
@@ -2096,16 +2116,21 @@ export function saveStudentGoal(g: StudentGoal): StudentGoal {
 
 export function createPasswordReset(record: PasswordResetRecord): PasswordResetRecord {
   const db = getSqliteDb();
+  // Persist only a digest: a database disclosure must not turn reset records
+  // into immediately usable account-reset links.
+  const tokenDigest = createHash('sha256').update(record.token).digest('hex');
   db.prepare(`
     INSERT INTO password_resets (id, user_id, token, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?)
-  `).run(record.id, record.userId, record.token, record.expiresAt, record.createdAt);
+  `).run(record.id, record.userId, tokenDigest, record.expiresAt, record.createdAt);
   return record;
 }
 
 export function verifyPasswordReset(token: string): PasswordResetRecord | null {
   const db = getSqliteDb();
-  const row = db.prepare('SELECT * FROM password_resets WHERE token = ? AND used_at IS NULL').get(token) as any;
+  const tokenDigest = createHash('sha256').update(token).digest('hex');
+  const row = db.prepare('SELECT * FROM password_resets WHERE token = ? AND used_at IS NULL AND expires_at > ?')
+    .get(tokenDigest, new Date().toISOString()) as any;
   if (!row) return null;
   return {
     id: row.id,
@@ -2120,8 +2145,8 @@ export function verifyPasswordReset(token: string): PasswordResetRecord | null {
 export function markPasswordResetUsed(token: string): boolean {
   const db = getSqliteDb();
   const now = new Date().toISOString();
-  db.prepare('UPDATE password_resets SET used_at = ? WHERE token = ?').run(now, token);
-  return true;
+  const tokenDigest = createHash('sha256').update(token).digest('hex');
+  return db.prepare('UPDATE password_resets SET used_at = ? WHERE token = ? AND used_at IS NULL').run(now, tokenDigest).changes > 0;
 }
 
 function mapUser(r: any): User {

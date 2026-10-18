@@ -45,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch('/api/auth/me');
       const data = await res.json();
       if (data.success && data.user) {
+        setToken('session');
         setUser(data.user);
         if (data.user.preferredLanguage) {
           setLanguageState(data.user.preferredLanguage);
@@ -55,7 +56,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
       }
     } catch {
-      // Fallback
+      setToken(null);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
